@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "dependency-cruiser": "^16.10.0",
+    "pdf-lib": "^1.17.1",
     "typescript": "^5.7.3"
   },
   "pnpm": {

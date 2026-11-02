@@ -1,0 +1,16 @@
+import { chromium } from "@playwright/test";
+import { spawn } from "node:child_process";
+const srv = spawn("pnpm", ["preview"], { stdio: "ignore", detached: true });
+await new Promise((r) => setTimeout(r, 2500));
+const b = await chromium.launch({ channel: "chrome" });
+const p = await b.newPage();
+p.on("console", (m) => (m.type() === "error" || m.type() === "warning") && console.log("[console]", m.type(), m.text().slice(0, 500)));
+p.on("pageerror", (e) => console.log("[pageerror]", e.message));
+await p.goto("http://localhost:4173/");
+await p.getByTestId("new-presentation").click();
+await p.waitForURL(/studio/);
+await p.waitForTimeout(1500);
+console.log("studio present:", await p.getByTestId("studio").count());
+console.log(await p.locator("body").innerText().then((t) => t.slice(0, 300)));
+await b.close();
+process.kill(-srv.pid);
