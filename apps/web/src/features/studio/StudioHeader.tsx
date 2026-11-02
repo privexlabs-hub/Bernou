@@ -5,6 +5,7 @@ import { useSessionStore } from "@/stores/private/sessionStore";
 import { renameSession } from "@/db/repositories/sessions";
 import { BernouLogo } from "@/ui/logo";
 import { Input } from "@/ui/input";
+import { SafetyControls } from "@/features/safety/SafetyControls";
 
 export function StudioHeader() {
   const session = useSessionStore((s) => s.session);
@@ -34,7 +35,9 @@ export function StudioHeader() {
         data-testid="studio-title"
       />
       <span className="rounded border border-border/70 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">Private workspace</span>
-      <div className="ml-auto flex items-center gap-2" id="studio-header-right" />
+      <div className="ml-auto flex items-center gap-2" id="studio-header-right">
+        <SafetyControls />
+      </div>
     </header>
   );
 }

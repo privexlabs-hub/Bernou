@@ -7,7 +7,7 @@
  *   - golden images for the deterministic layers
  */
 import { describe, expect, it } from "vitest";
-import { createCanvas, Path2D, DOMMatrix, ImageData } from "@napi-rs/canvas";
+import { createCanvas, Path2D, DOMMatrix, ImageData, type Canvas } from "@napi-rs/canvas";
 import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -50,7 +50,7 @@ function payload(over: Partial<AudiencePayload> = {}, cam: Partial<AudiencePaylo
 
 /** A synthetic 960x540 "slide": light background, coloured bar, big dark block. No text (fonts vary across machines). */
 function slideImage() {
-  const c = createCanvas(960, 540);
+  const c = createCanvas(960, 540) as Canvas;
   const g = c.getContext("2d");
   g.fillStyle = "#f4f4f4";
   g.fillRect(0, 0, 960, 540);
@@ -62,7 +62,7 @@ function slideImage() {
 }
 /** A synthetic 640x480 "camera frame": magenta/green diagonal blocks + white square. */
 function cameraImage() {
-  const c = createCanvas(640, 480);
+  const c = createCanvas(640, 480) as Canvas;
   const g = c.getContext("2d");
   for (let y = 0; y < 480; y += 32)
     for (let x = 0; x < 640; x += 32) {
@@ -78,14 +78,14 @@ const assets: AssetResolver = { get: (id) => (id === "s1" ? (slideImage() as unk
 const camera: FrameSource = { current: () => cameraImage() as unknown as CanvasImageSource, width: () => 640, height: () => 480 };
 
 function render(p: AudiencePayload | null, cam: FrameSource | null = camera, w = 1280, h = 720) {
-  const c = createCanvas(w, h);
+  const c = createCanvas(w, h) as Canvas;
   renderFrame(c.getContext("2d") as unknown as Ctx2D, { payload: p, assets, camera: cam });
   return c;
 }
-const png = (c: ReturnType<typeof createCanvas>) => PNG.sync.read(c.toBuffer("image/png"));
-const sha = (c: ReturnType<typeof createCanvas>) => Buffer.from(c.toBuffer("image/png")).toString("base64");
+const png = (c: Canvas) => PNG.sync.read(c.toBuffer("image/png"));
+const sha = (c: Canvas) => Buffer.from(c.toBuffer("image/png")).toString("base64");
 
-function expectGolden(name: string, c: ReturnType<typeof createCanvas>, threshold = 0) {
+function expectGolden(name: string, c: Canvas, threshold = 0) {
   const file = resolve(golden, `${name}.png`);
   const actual = png(c);
   if (UPDATE || !existsSync(file)) {
@@ -115,7 +115,7 @@ describe("renderFrame determinism", () => {
     const full = png(render(p, camera, 1280, 720));
     const small = render(p, camera, 640, 360);
     // upscale small back and compare loosely: layout must match, not pixels
-    const up = createCanvas(1280, 720);
+    const up = createCanvas(1280, 720) as Canvas;
     up.getContext("2d").drawImage(small, 0, 0, 1280, 720);
     const diff = pixelmatch(full.data, png(up).data, null, 1280, 720, { threshold: 0.3 });
     expect(diff / (1280 * 720)).toBeLessThan(0.03);

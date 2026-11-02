@@ -19,9 +19,9 @@ beforeAll(() => {
     const c = createCanvas(w, h) as unknown as { convertToBlob?: (o?: { type?: string; quality?: number }) => Promise<Blob> };
     c.convertToBlob = async (o) => {
       const type = (o?.type ?? "image/png") as "image/png" | "image/jpeg";
-      const napi = c as unknown as ReturnType<typeof createCanvas>;
+      const napi = c as unknown as { toBuffer(mime: "image/png"): Buffer; toBuffer(mime: "image/jpeg", quality: number): Buffer };
       const buf = type === "image/jpeg" ? napi.toBuffer("image/jpeg", Math.round((o?.quality ?? 0.9) * 100)) : napi.toBuffer("image/png");
-      return new Blob([buf], { type });
+      return new Blob([new Uint8Array(buf)], { type });
     };
     return c;
   } as unknown;
