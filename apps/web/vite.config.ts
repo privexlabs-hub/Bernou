@@ -26,11 +26,13 @@ export default defineConfig({
         audience: fileURLToPath(new URL("./audience.html", import.meta.url)),
       },
       output: {
-        // Keep audience code in a clearly named chunk so it can be audited.
+        // The side-effect-free library packages shared by both pages go in one
+        // auditable chunk. The audience ENTRY (src/audience/**) must NOT be
+        // merged into it: a chunk's top-level code runs whenever any page loads
+        // that chunk, so merging would execute the audience bootstrap inside
+        // the presenter page.
         manualChunks(id) {
-          if (id.includes("/src/audience/") || id.includes("/packages/composition-engine/") || id.includes("/packages/audience-protocol/")) {
-            return "audience-core";
-          }
+          if (id.includes("/packages/composition-engine/") || id.includes("/packages/audience-protocol/")) return "audience-core";
           return undefined;
         },
       },

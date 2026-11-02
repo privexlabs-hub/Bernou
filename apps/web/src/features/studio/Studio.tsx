@@ -42,7 +42,7 @@ export function Studio() {
             </Panel>
             <PanelResizeHandle className="mx-1 w-1 rounded bg-transparent transition-colors hover:bg-primary/40 data-[resize-handle-active]:bg-primary/60" />
             <Panel defaultSize={54} minSize={30} className="min-w-0">
-              <PreviewPanel />
+              <PreviewPanel cameraSource={null} />
             </Panel>
             <PanelResizeHandle className="mx-1 w-1 rounded bg-transparent transition-colors hover:bg-primary/40 data-[resize-handle-active]:bg-primary/60" />
             <Panel defaultSize={30} minSize={18} collapsible collapsedSize={0} className="min-w-0">

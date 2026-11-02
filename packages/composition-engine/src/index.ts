@@ -1,2 +1,9 @@
-// Filled in step 2.4. Kept minimal at scaffold time so the workspace resolves.
-export {};
+export * from "./types";
+export * from "./geometry";
+export * from "./engine";
+export * from "./scheduler";
+export * from "./assetCache";
+export * from "./sources";
+export { drawSlideLayer } from "./layers/slideLayer";
+export { drawCameraLayer, roundRectPath } from "./layers/cameraLayer";
+export { drawBrandingLayer } from "./layers/brandingLayer";
