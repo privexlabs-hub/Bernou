@@ -42,7 +42,8 @@ test.describe("camera and microphone (fake devices)", () => {
     await page.getByTestId("camera-toggle").click();
     await expect(page.getByTestId("camera-toggle")).toHaveAttribute("data-live", "true");
 
-    // private raw preview has real video dimensions
+    // private raw preview (Camera tab) has real video dimensions
+    await page.getByTestId("tab-camera").click();
     await expect.poll(() => page.evaluate(() => document.querySelector<HTMLVideoElement>('[data-testid="camera-raw-preview"]')!.videoWidth)).toBeGreaterThan(0);
 
     // audience preview changed (overlay is now drawn)

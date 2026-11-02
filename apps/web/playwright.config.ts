@@ -27,7 +27,8 @@ export default defineConfig({
   webServer: {
     command: "rm -rf dist && pnpm build && pnpm preview",
     url: "http://localhost:4173",
-    reuseExistingServer: !process.env.CI,
+    // Never reuse: a stale server once masked a fix and cost real debugging time.
+    reuseExistingServer: false,
     timeout: 120_000,
   },
   projects: [
