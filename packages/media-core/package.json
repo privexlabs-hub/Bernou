@@ -9,7 +9,7 @@
   "exports": { ".": "./src/index.ts" },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "lint": "echo 'no lint configured for this package'"
   },
   "dependencies": { "@bernou/audience-protocol": "workspace:*" },

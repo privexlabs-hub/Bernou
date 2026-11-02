@@ -8,7 +8,8 @@ import { fileURLToPath, URL } from "node:url";
 const [, , out, what = "dashboard"] = process.argv;
 const srv = spawn("pnpm", ["preview"], { stdio: "ignore" });
 await new Promise((r) => setTimeout(r, 2500));
-const b = await chromium.launch({ channel: "chrome", args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
+const fx = fileURLToPath(new URL("../../../fixtures/media", import.meta.url));
+const b = await chromium.launch({ channel: "chrome", args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", `--use-file-for-fake-video-capture=${fx}/cam.y4m`, `--use-file-for-fake-audio-capture=${fx}/tone.wav`] });
 const ctx = await b.newContext({ viewport: { width: 1440, height: 900 }, permissions: ["camera", "microphone"] });
 const p = await ctx.newPage();
 await p.goto("http://localhost:4173/");
@@ -17,7 +18,9 @@ if (what === "studio") {
   await p.waitForURL(/studio/);
   await p.getByTestId("slide-counter").filter({ hasText: "1 / 20" }).waitFor();
   await p.getByRole("button", { name: "Slide 3" }).click();
-  await p.waitForTimeout(400);
+  await p.getByTestId("camera-toggle").click().catch(() => {});
+  await p.getByTestId("mic-toggle").click().catch(() => {});
+  await p.waitForTimeout(1200);
 } else {
   await p.getByTestId("new-presentation").click();
   await p.waitForURL(/studio/);

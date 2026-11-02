@@ -10,6 +10,9 @@ import { RightPanel } from "./RightPanel";
 import { BottomToolbar } from "./BottomToolbar";
 import { useSlideShortcuts } from "@/features/slides/useSlideShortcuts";
 import { Link } from "react-router-dom";
+import { useCameraSource } from "@/features/media/useCameraSource";
+import { useEffect } from "react";
+import { useDevicesStore } from "@/stores/private/devicesStore";
 
 export function Studio() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -19,6 +22,10 @@ export function Studio() {
 
   const loading = useSessionStore((s) => s.loading);
   const loadError = useSessionStore((s) => s.loadError);
+  const { source: cameraSource } = useCameraSource();
+
+  // Release camera + microphone when leaving the studio (spec §10).
+  useEffect(() => () => void useDevicesStore.getState().releaseAll(), []);
 
   if (loadError) {
     return (
@@ -42,7 +49,7 @@ export function Studio() {
             </Panel>
             <PanelResizeHandle className="mx-1 w-1 rounded bg-transparent transition-colors hover:bg-primary/40 data-[resize-handle-active]:bg-primary/60" />
             <Panel defaultSize={54} minSize={30} className="min-w-0">
-              <PreviewPanel cameraSource={null} />
+              <PreviewPanel cameraSource={cameraSource} />
             </Panel>
             <PanelResizeHandle className="mx-1 w-1 rounded bg-transparent transition-colors hover:bg-primary/40 data-[resize-handle-active]:bg-primary/60" />
             <Panel defaultSize={30} minSize={18} collapsible collapsedSize={0} className="min-w-0">

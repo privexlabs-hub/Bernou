@@ -1,11 +1,42 @@
-// Filled in steps 2.7–2.8 (script editor, teleprompter, notes, media settings).
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/tabs";
+import { CameraPanel } from "@/features/media/CameraPanel";
+
+/**
+ * Right panel: Script, Teleprompter, Notes (steps 2.7–2.8) and Camera (2.5).
+ */
 export function RightPanel() {
   return (
     <aside className="panel flex h-full flex-col overflow-hidden" aria-label="Presenter tools">
-      <div className="px-3 py-2">
-        <span className="panel-title">Presenter tools</span>
-      </div>
-      <div className="flex flex-1 items-center justify-center p-4 text-center text-xs text-muted-foreground">Script, teleprompter and notes arrive in steps 2.7–2.8.</div>
+      <Tabs defaultValue="camera" className="flex h-full flex-col">
+        <div className="px-2 pt-2">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="script" data-testid="tab-script">
+              Script
+            </TabsTrigger>
+            <TabsTrigger value="prompter" data-testid="tab-prompter">
+              Prompter
+            </TabsTrigger>
+            <TabsTrigger value="notes" data-testid="tab-notes">
+              Notes
+            </TabsTrigger>
+            <TabsTrigger value="camera" data-testid="tab-camera">
+              Camera
+            </TabsTrigger>
+          </TabsList>
+        </div>
+        <TabsContent value="script" className="min-h-0 flex-1 overflow-y-auto">
+          <p className="p-4 text-center text-xs text-muted-foreground">Script editor arrives in step 2.7.</p>
+        </TabsContent>
+        <TabsContent value="prompter" className="min-h-0 flex-1 overflow-y-auto">
+          <p className="p-4 text-center text-xs text-muted-foreground">Teleprompter arrives in step 2.8.</p>
+        </TabsContent>
+        <TabsContent value="notes" className="min-h-0 flex-1 overflow-y-auto">
+          <p className="p-4 text-center text-xs text-muted-foreground">Speaker notes arrive in step 2.7.</p>
+        </TabsContent>
+        <TabsContent value="camera" className="min-h-0 flex-1 overflow-y-auto">
+          <CameraPanel />
+        </TabsContent>
+      </Tabs>
     </aside>
   );
 }
