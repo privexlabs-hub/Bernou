@@ -1,0 +1,10 @@
+import { chromium } from "@playwright/test";
+const b = await chromium.launch({ channel: "chrome" });
+const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
+await p.goto("http://localhost:4173/");
+await p.getByTestId("new-presentation").click();
+await p.waitForURL(/studio/);
+await p.goto("http://localhost:4173/");
+await p.waitForSelector('[data-testid="session-card"]');
+await p.screenshot({ path: process.argv[2] });
+await b.close();
