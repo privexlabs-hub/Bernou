@@ -20,7 +20,18 @@ if (what === "studio") {
   await p.getByRole("button", { name: "Slide 3" }).click();
   await p.getByTestId("camera-toggle").click().catch(() => {});
   await p.getByTestId("mic-toggle").click().catch(() => {});
-  await p.waitForTimeout(1200);
+  if (process.argv[4] === "prompter") {
+    await p.getByTestId("tab-script").click();
+    const speech = Array.from({ length: 12 }, (_, i) => `Section ${i + 1}. ${"Thermodynamics tells us that energy is conserved, but entropy always increases. ".repeat(3)}`).join("\n\n");
+    await p.getByTestId("script-paste").fill(speech);
+    await p.getByTestId("script-paste-commit").click();
+    await p.getByTestId("section-split").first().click();
+    await p.getByTestId("tab-prompter").click();
+    await p.getByTestId("prompter-toggle").click();
+    await p.waitForTimeout(2500);
+  } else {
+    await p.waitForTimeout(1200);
+  }
 } else {
   await p.getByTestId("new-presentation").click();
   await p.waitForURL(/studio/);

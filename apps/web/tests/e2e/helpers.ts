@@ -9,7 +9,7 @@ export async function createSessionViaUi(page: Page): Promise<string> {
 }
 
 /** Read a session record straight from IndexedDB (bypasses the app) — proves a write committed. */
-export async function readSessionFromIdb(page: Page, id: string): Promise<{ activeSlideIndex: number; title: string; slideCount: number } | null> {
+export async function readSessionFromIdb(page: Page, id: string): Promise<{ activeSlideIndex: number; title: string; slideCount: number; teleprompter: { fontSize: number; align: string }; composition: unknown } | null> {
   return page.evaluate(
     (sessionId) =>
       new Promise((resolve) => {
@@ -22,7 +22,7 @@ export async function readSessionFromIdb(page: Page, id: string): Promise<{ acti
           get.onsuccess = () => {
             const r = get.result;
             db.close();
-            resolve(r ? { activeSlideIndex: r.activeSlideIndex, title: r.title, slideCount: r.slideCount } : null);
+            resolve(r ? { activeSlideIndex: r.activeSlideIndex, title: r.title, slideCount: r.slideCount, teleprompter: r.teleprompter, composition: r.composition } : null);
           };
           get.onerror = () => resolve(null);
         };

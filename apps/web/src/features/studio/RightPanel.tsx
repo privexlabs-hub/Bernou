@@ -2,12 +2,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/tabs";
 import { CameraPanel } from "@/features/media/CameraPanel";
 import { ScriptEditor, useScriptAutosave } from "@/features/script/ScriptEditor";
 import { NotesPanel } from "@/features/notes/NotesPanel";
+import { Teleprompter } from "@/features/teleprompter/Teleprompter";
+import { useTeleprompterShortcuts } from "@/features/teleprompter/useTeleprompterShortcuts";
 
 /**
  * Right panel: Script, Teleprompter, Notes (steps 2.7–2.8) and Camera (2.5).
  */
 export function RightPanel() {
   useScriptAutosave();
+  useTeleprompterShortcuts();
   return (
     <aside className="panel flex h-full flex-col overflow-hidden" aria-label="Presenter tools">
       <Tabs defaultValue="script" className="flex h-full flex-col">
@@ -30,8 +33,8 @@ export function RightPanel() {
         <TabsContent value="script" className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
           <ScriptEditor />
         </TabsContent>
-        <TabsContent value="prompter" className="min-h-0 flex-1 overflow-y-auto">
-          <p className="p-4 text-center text-xs text-muted-foreground">Teleprompter arrives in step 2.8.</p>
+        <TabsContent value="prompter" className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden" forceMount>
+          <Teleprompter />
         </TabsContent>
         <TabsContent value="notes" className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
           <NotesPanel />

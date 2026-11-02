@@ -107,7 +107,7 @@ export function useSessionPersistence(sessionId: string | undefined) {
     };
     const schedule = () => {
       if (t) clearTimeout(t);
-      t = setTimeout(flush, 400);
+      t = setTimeout(flush, 250);
     };
     // A slide change is tiny and is what a presenter most expects to survive
     // a crash or reload, so it is written immediately.
