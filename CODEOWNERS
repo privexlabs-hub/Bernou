@@ -1,0 +1,7 @@
+# Changes to the privacy boundary require explicit review.
+/packages/audience-protocol/   @bernou-privacy-reviewers
+/.dependency-cruiser.cjs       @bernou-privacy-reviewers
+/scripts/boundary-meta-test.mjs @bernou-privacy-reviewers
+/scripts/bundle-privacy-check.mjs @bernou-privacy-reviewers
+/apps/web/src/audience/        @bernou-privacy-reviewers
+/apps/web/src/stores/audienceBridge.ts @bernou-privacy-reviewers

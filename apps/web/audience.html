@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <!--
+      AUDIENCE-ONLY WINDOW.
+      This page is what gets shared in Zoom / Meet / Teams. It contains exactly
+      one <canvas> driven by the composition engine. There is NO React, NO
+      application store, NO navigation, NO text UI. See src/audience/main.ts.
+      Privacy test P3 asserts document.body.innerText is empty.
+    -->
+    <title>Bernou — Audience</title>
+    <style>
+      html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
+      body:hover { cursor: default; }
+      canvas { display: block; width: 100vw; height: 100vh; object-fit: contain; background: #000; }
+    </style>
+  </head>
+  <body>
+    <canvas id="audience-canvas" aria-label="Presentation output"></canvas>
+    <script type="module" src="/src/audience/main.ts"></script>
+  </body>
+</html>

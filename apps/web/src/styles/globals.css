@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Bernou studio theme — a dark production console.
+  Near-black blue-grey canvas, warm amber accent (the colour of a tally light
+  and of stage lighting), a single saturated red reserved for REC.
+*/
+@layer base {
+  :root,
+  .dark {
+    --background: 225 18% 6%;
+    --foreground: 220 14% 92%;
+
+    --panel: 225 16% 9%;
+    --panel-raised: 225 14% 12%;
+
+    --card: 225 16% 9%;
+    --card-foreground: 220 14% 92%;
+    --popover: 225 16% 10%;
+    --popover-foreground: 220 14% 92%;
+
+    --primary: 38 92% 58%;
+    --primary-foreground: 225 20% 8%;
+
+    --secondary: 225 12% 16%;
+    --secondary-foreground: 220 14% 88%;
+
+    --muted: 225 12% 14%;
+    --muted-foreground: 220 9% 58%;
+
+    --accent: 225 12% 18%;
+    --accent-foreground: 220 14% 94%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --rec: 0 84% 58%;
+    --live: 152 60% 48%;
+
+    --border: 225 12% 16%;
+    --input: 225 12% 18%;
+    --ring: 38 92% 58%;
+
+    --radius: 0.625rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.35);
+  }
+
+  /* Thin, unobtrusive scrollbars for panels */
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: hsl(220 10% 30% / 0.6);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply bg-panel border border-border/70 rounded-lg shadow-studio;
+  }
+  .panel-title {
+    @apply text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground;
+  }
+  .kbd {
+    @apply inline-flex items-center justify-center rounded border border-border bg-panel-raised px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground;
+  }
+}
