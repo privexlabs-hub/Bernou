@@ -1,8 +1,8 @@
 /**
  * Where recordings live while being written. OPFS through a sync access handle
  * flushes every chunk, so a crash loses only what the recorder hadn't yet handed
- * over (see KEYFRAME_MS). Blob workers
- * follow the composition engine's scheduler: no bundler involvement.
+ * over (see KEYFRAME_MS). Blob workers follow the composition engine's scheduler:
+ * no bundler involvement.
  */
 export interface RecordingSink {
   /** Queued in order; rejects if the write failed. */

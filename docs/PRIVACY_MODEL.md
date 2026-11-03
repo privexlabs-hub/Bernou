@@ -14,18 +14,21 @@ Nothing else reaches the engine. In particular, the following never cross the bo
 | Teleprompter state (position, speed, font, colours) | `stores/private/teleprompterStore` |
 | Speaker notes | `stores/private/notesStore` + IndexedDB |
 | Recording state, controls, timer | `stores/private/recordingStore` |
-| Microphone device list, levels, mute | `stores/private/micStore` |
+| Microphone device list, levels, mute | `stores/private/devicesStore` |
 | Session name, file names, deck title, slide text layers | `db/`, `stores/public/deckStore` (rasterised bitmaps only cross) |
 | Navigation UI | React tree in the presenter window only |
 
 The **only free text** in the payload is `branding.title`: set in a field labelled "visible to audience", capped at 120 characters.
+
+A recording holds the composition plus the microphone through the audio graph. It is kept in this browser (OPFS) until the presenter downloads or deletes it. Starting or stopping one publishes nothing to the audience, and the session title appears only in the downloaded file's name.
 
 ## What "independent" means here
 
 - Privacy is **not** CSS. No element is hidden to make it private.
 - The audience window is a **separate Vite entry** (`audience.html` → `src/audience/main.ts`). It contains one `<canvas>`, no React, no stores, no router, no database.
 - The presenter's preview and the audience window run **the same engine on the same payload**, so the preview is not an approximation.
-- The webcam reaches the audience window by **re-acquiring the camera by `deviceId`** in that window (option 1 in the architecture). A `MediaStream` is never shared across windows.
+- The webcam reaches the audience window by **re-acquiring the camera by `deviceId`** in that window (option 1 in the architecture). A `MediaStream` is never shared across windows. Chromium can give one camera a different id in each window: with exactly one real camera listed it is opened by its own id; otherwise the window reports an error rather than guess.
+- The audience window reports back only a heartbeat and a camera error code (`audience-status`, `audience-bye`): never names, labels or browser text.
 
 ## Threat model
 
@@ -38,7 +41,7 @@ The **only free text** in the payload is `branding.title`: set in a field labell
 | Imported content itself carries notes (PPTX notes slides, "notes pages" PDFs) | P8 import test; importer never rasterises `ppt/notesSlides/*`; notes-page PDF warning |
 | A hostile message on the BroadcastChannel from another same-origin tab | Inbound validation drops it; channel is same-origin only |
 | Screen-sharing the wrong window | Documentation + distinct, stable audience window title + Capture Handle |
-| Capture continues after the presenter thinks it stopped | P9: Emergency Stop ends every track; indicators driven by `track.readyState` |
+| Capture continues after the presenter thinks it stopped | P9, P9b, P9c: Emergency Stop ends every track, including starts still in flight in either window, and stops the recorder first; indicators driven by `track.readyState` |
 
 **Out of scope:** an attacker with code execution on the presenter's machine; the presenter choosing to share their whole screen instead of the audience window; conferencing-app bugs.
 

@@ -8,16 +8,16 @@ The audience output is never a screen capture of the app. It is drawn by a stand
 
 ## Status
 
-Stage SECOND (MVP) is implemented and tested. Recording (Stage THIRD) and advanced integration (Stage FOURTH) are not started. See [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) for the honest per-feature status.
+Stage SECOND (MVP) and recording with download are implemented and tested. Advanced integration (Stage FOURTH) is not started. No written Stage THIRD spec is in this repo, so recording was built to the behaviour recorded in the limitations document. See [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) for the honest per-feature status.
 
 ## Run it
 
 ```bash
 pnpm install
-pnpm dev            # presenter workspace at http://localhost:5173
+pnpm dev            # presenter workspace at http://localhost:5173 (use pnpm install, not npm install: npm leaves the workspace packages uninstalled)
 ```
 
-Open the app, create a presentation, import a PDF (export PowerPoint to PDF first), paste a script, turn on your camera and microphone, then **Open audience window** and share *that window* in Zoom, Meet or Teams.
+Open the app, create a presentation, import a PDF (export PowerPoint to PDF first), paste a script, turn on your camera and microphone, then **Open audience window** and share *that window* in Zoom, Meet or Teams. **Record** saves the audience output with your microphone; download it when you stop, or later from the dashboard.
 
 ## Verify it
 
