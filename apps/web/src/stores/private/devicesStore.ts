@@ -25,6 +25,13 @@ import {
 } from "@bernou/media-core";
 import { useCompositionStore } from "@/stores/public/compositionStore";
 
+export interface ReleaseReport {
+  /** Live tracks that were ended. */
+  tracksStopped: number;
+  /** Device starts still in flight, which will stop themselves when they resolve. */
+  requestsCancelled: number;
+}
+
 interface DevicesState {
   cameras: MediaDevice[];
   microphones: MediaDevice[];
@@ -51,9 +58,17 @@ interface DevicesState {
   stopMic: () => void;
   setMicMuted: (m: boolean) => void;
   /** Stop everything and release all hardware. */
-  releaseAll: () => Promise<void>;
+  releaseAll: () => Promise<ReleaseReport>;
   _listen: () => () => void;
 }
+
+/**
+ * getUserMedia can't be aborted, so each start takes a generation number and
+ * re-checks it after every await. Anything that ends capture bumps the number,
+ * which makes a start still in flight stop its own stream when it resolves.
+ */
+let cameraOp = 0;
+let micOp = 0;
 
 export const useDevicesStore = create<DevicesState>((set, get) => ({
   cameras: [],
@@ -85,30 +100,38 @@ export const useDevicesStore = create<DevicesState>((set, get) => ({
   async startCamera(deviceId) {
     const s = get();
     if (s.cameraBusy) return;
+    const op = ++cameraOp;
     set({ cameraBusy: true, cameraError: null });
     stopStream(s.cameraStream);
+    let stream: MediaStream | null = null;
     try {
-      const stream = await openCamera({ deviceId: deviceId ?? s.selectedCameraId });
-      const actual = activeDeviceId(stream, "video");
-      set({ cameraStream: stream, selectedCameraId: actual ?? deviceId ?? s.selectedCameraId, cameraBusy: false });
+      stream = await openCamera({ deviceId: deviceId ?? s.selectedCameraId });
+      if (op !== cameraOp) return stopStream(stream);
+      const live = stream;
+      const actual = activeDeviceId(live, "video");
+      // Camera unplugged mid-session → reflect it.
+      live.getVideoTracks()[0]?.addEventListener("ended", () => {
+        if (get().cameraStream === live) get().stopCamera();
+      });
+      set({ cameraStream: live, selectedCameraId: actual ?? deviceId ?? s.selectedCameraId, cameraBusy: false });
       useCompositionStore.getState().setCameraDeviceId(actual);
       useCompositionStore.getState().patchCamera({ enabled: true });
-      // Labels become available after the first grant.
-      await get().refreshDevices();
-      // Camera unplugged mid-session → reflect it.
-      stream.getVideoTracks()[0]?.addEventListener("ended", () => {
-        if (get().cameraStream === stream) get().stopCamera();
-      });
     } catch (e) {
+      stopStream(stream);
+      if (op !== cameraOp) return;
       set({ cameraStream: null, cameraError: mapMediaError(e, "camera"), cameraBusy: false });
       useCompositionStore.getState().patchCamera({ enabled: false });
       useCompositionStore.getState().setCameraDeviceId(null);
+      return;
     }
+    // Labels become available after the first grant. Failing to list them must not end a live camera.
+    await get().refreshDevices().catch(() => undefined);
   },
 
   stopCamera() {
+    cameraOp++;
     stopStream(get().cameraStream);
-    set({ cameraStream: null });
+    set({ cameraStream: null, cameraBusy: false });
     useCompositionStore.getState().patchCamera({ enabled: false });
     useCompositionStore.getState().setCameraDeviceId(null);
   },
@@ -116,29 +139,40 @@ export const useDevicesStore = create<DevicesState>((set, get) => ({
   async startMic(deviceId) {
     const s = get();
     if (s.micBusy) return;
+    const op = ++micOp;
     set({ micBusy: true, micError: null });
     stopStream(s.micStream);
+    let stream: MediaStream | null = null;
     try {
-      const stream = await openMicrophone({ deviceId: deviceId ?? s.selectedMicId });
-      const graph = s.audioGraph ?? createAudioGraph();
+      stream = await openMicrophone({ deviceId: deviceId ?? s.selectedMicId });
+      if (op !== micOp) return stopStream(stream);
+      const live = stream;
+      // Re-read after the await: the graph seen before it may have been closed since.
+      const graph = get().audioGraph ?? createAudioGraph();
+      set({ audioGraph: graph });
       await graph.resume();
-      graph.setSource(stream);
-      graph.setMuted(s.micMuted);
-      set({ micStream: stream, audioGraph: graph, selectedMicId: activeDeviceId(stream, "audio") ?? deviceId ?? s.selectedMicId, micBusy: false });
-      await get().refreshDevices();
-      stream.getAudioTracks()[0]?.addEventListener("ended", () => {
-        if (get().micStream === stream) get().stopMic();
+      if (op !== micOp) return stopStream(live);
+      graph.setSource(live);
+      graph.setMuted(get().micMuted);
+      live.getAudioTracks()[0]?.addEventListener("ended", () => {
+        if (get().micStream === live) get().stopMic();
       });
+      set({ micStream: live, selectedMicId: activeDeviceId(live, "audio") ?? deviceId ?? s.selectedMicId, micBusy: false });
     } catch (e) {
+      stopStream(stream);
+      if (op !== micOp) return;
       set({ micStream: null, micError: mapMediaError(e, "microphone"), micBusy: false });
+      return;
     }
+    await get().refreshDevices().catch(() => undefined);
   },
 
   stopMic() {
+    micOp++;
     const s = get();
     stopStream(s.micStream);
     s.audioGraph?.setSource(null);
-    set({ micStream: null });
+    set({ micStream: null, micBusy: false });
   },
 
   setMicMuted(m) {
@@ -148,12 +182,19 @@ export const useDevicesStore = create<DevicesState>((set, get) => ({
 
   async releaseAll() {
     const s = get();
+    // Invalidate in-flight starts first, then end everything in this tick:
+    // nothing below an await may be needed for capture to actually stop.
+    cameraOp++;
+    micOp++;
+    const requestsCancelled = (s.cameraBusy ? 1 : 0) + (s.micBusy ? 1 : 0);
+    const tracksStopped = [s.cameraStream, s.micStream].flatMap((m) => m?.getTracks() ?? []).filter((t) => t.readyState === "live").length;
     stopStream(s.cameraStream);
     stopStream(s.micStream);
-    await s.audioGraph?.close();
     set({ cameraStream: null, micStream: null, audioGraph: null, cameraBusy: false, micBusy: false });
     useCompositionStore.getState().patchCamera({ enabled: false });
     useCompositionStore.getState().setCameraDeviceId(null);
+    await s.audioGraph?.close();
+    return { tracksStopped, requestsCancelled };
   },
 
   _listen() {

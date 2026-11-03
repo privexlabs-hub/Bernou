@@ -16,7 +16,8 @@ import { getAudiencePublisher } from "@/features/audienceWindow/AudienceWindowCo
 
 export interface StopReport {
   at: number;
-  tracksEnded: number;
+  tracksStopped: number;
+  requestsCancelled: number;
   audienceBlanked: boolean;
 }
 
@@ -26,6 +27,9 @@ export function registerStopper(fn: () => Promise<void> | void): () => void {
   extraStoppers.add(fn);
   return () => extraStoppers.delete(fn);
 }
+
+/** How long the report waits for stoppers. They keep running after this. */
+const STOPPER_REPORT_WAIT_MS = 5000;
 
 let lastReport: StopReport | null = null;
 export function getLastStopReport() {
@@ -37,13 +41,24 @@ export async function emergencyStop(): Promise<StopReport> {
   const audienceBlanked = !!pub;
   pub?.blank();
 
-  const d = useDevicesStore.getState();
-  const tracks = [...(d.cameraStream?.getTracks() ?? []), ...(d.micStream?.getTracks() ?? [])];
-  await d.releaseAll();
+  // Stoppers start before devices are released so a recording can't capture
+  // the moment the camera disappears. One that fails or hangs must not get in
+  // the way of ending capture, so nothing here waits on them until the end.
+  const stopping: Promise<void>[] = [];
+  for (const s of extraStoppers) {
+    try {
+      stopping.push(Promise.resolve(s()));
+    } catch {
+      /* the remaining steps still have to run */
+    }
+  }
+  const released = useDevicesStore.getState().releaseAll();
   useTeleprompterStore.getState().stop();
-  for (const s of extraStoppers) await s();
 
-  lastReport = { at: Date.now(), tracksEnded: tracks.filter((t) => t.readyState === "ended").length, audienceBlanked };
+  const { tracksStopped, requestsCancelled } = await released;
+  await Promise.race([Promise.allSettled(stopping), new Promise((r) => setTimeout(r, STOPPER_REPORT_WAIT_MS))]);
+
+  lastReport = { at: Date.now(), tracksStopped, requestsCancelled, audienceBlanked };
   return lastReport;
 }
 

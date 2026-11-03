@@ -30,8 +30,8 @@ try {
 }
 
 const cache = createAssetCache(128);
-const camera = createAudienceCamera();
 const engine = createEngine(canvas, { assets: cache }, {}, 30);
+const camera = createAudienceCamera((source) => engine.setCamera(source));
 engine.resize(1920, 1080);
 engine.renderNow(); // neutral frame immediately, never a white window
 engine.start();
@@ -48,7 +48,7 @@ function applyPayload(p: AudiencePayload) {
   engine.setPayload(p);
   // camera follows the payload's deviceId
   const wantCam = p.camera.enabled && p.layout !== "slide-full" && p.layout !== "blank" ? p.camera.deviceId : null;
-  void camera.use(wantCam).then(() => engine.setCamera(camera.source));
+  void camera.use(wantCam);
   // request any asset we don't have
   const need = [p.slide?.assetId, p.branding?.logoAssetId].filter((x): x is string => !!x);
   for (const id of need) {
@@ -63,7 +63,6 @@ function blank() {
   current = null;
   engine.setPayload(null);
   camera.release();
-  engine.setCamera(null);
   engine.renderNow();
 }
 

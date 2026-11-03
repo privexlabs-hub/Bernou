@@ -8,7 +8,7 @@ import { Camera, Mic, MonitorUp, OctagonX } from "lucide-react";
 import { Button } from "@/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/tooltip";
 import { useDevicesStore } from "@/stores/private/devicesStore";
-import { emergencyStop, resumeAudience } from "./emergencyStop";
+import { emergencyStop, resumeAudience, type StopReport } from "./emergencyStop";
 import { getAudiencePublisher } from "@/features/audienceWindow/AudienceWindowControls";
 import { cn } from "@/lib/utils";
 
@@ -40,14 +40,14 @@ export function useLiveCaptureState(): Live {
 
 export function SafetyControls() {
   const live = useLiveCaptureState();
-  const [stopped, setStopped] = useState<null | { tracksEnded: number }>(null);
+  const [stopped, setStopped] = useState<null | StopReport>(null);
   const anyLive = live.camera || live.mic || live.audience;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "Escape") {
         e.preventDefault();
-        void emergencyStop().then((r) => setStopped({ tracksEnded: r.tracksEnded }));
+        void emergencyStop().then(setStopped);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -69,7 +69,10 @@ export function SafetyControls() {
       </div>
       {stopped ? (
         <div className="flex items-center gap-1" role="status" data-testid="stopped-banner">
-          <span className="text-[11px] text-muted-foreground">Stopped — {stopped.tracksEnded} capture track{stopped.tracksEnded === 1 ? "" : "s"} ended, audience blanked.</span>
+          <span className="text-[11px] text-muted-foreground">
+            Stopped — {stopped.tracksStopped} capture track{stopped.tracksStopped === 1 ? "" : "s"} ended
+            {stopped.requestsCancelled > 0 && `, ${stopped.requestsCancelled} pending start${stopped.requestsCancelled === 1 ? "" : "s"} cancelled`}, audience blanked.
+          </span>
           <Button
             size="sm"
             variant="secondary"
@@ -90,7 +93,7 @@ export function SafetyControls() {
               size="sm"
               variant={anyLive ? "destructive" : "outline"}
               className="h-7"
-              onClick={() => void emergencyStop().then((r) => setStopped({ tracksEnded: r.tracksEnded }))}
+              onClick={() => void emergencyStop().then(setStopped)}
               data-testid="emergency-stop"
               aria-label="Emergency stop: end all capture and blank the audience output"
             >
