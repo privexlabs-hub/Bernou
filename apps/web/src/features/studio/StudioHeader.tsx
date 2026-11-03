@@ -21,7 +21,7 @@ export function StudioHeader() {
 
   return (
     <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border/70 px-3">
-      <Link to="/" className="flex items-center gap-2 rounded px-1 py-1 text-muted-foreground hover:text-foreground" aria-label="Back to dashboard">
+      <Link to="/" data-testid="back-to-dashboard" className="flex items-center gap-2 rounded px-1 py-1 text-muted-foreground hover:text-foreground" aria-label="Back to dashboard">
         <ChevronLeft className="h-4 w-4" />
         <BernouLogo className="h-5 w-5" />
       </Link>

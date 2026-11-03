@@ -85,6 +85,9 @@ export function useSessionLoader(sessionId: string | undefined) {
       cancelled = true;
       deck.clear();
       setSession(null);
+      // Private text must not stay on screen while the next session loads.
+      useScriptStore.getState().setSession(null, []);
+      useNotesStore.getState().setSession(null, []);
       setImportStatus(IDLE_IMPORT);
     };
   }, [sessionId, setSession, setLoading, setImportStatus]);

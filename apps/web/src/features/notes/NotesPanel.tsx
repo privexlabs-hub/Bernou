@@ -19,21 +19,28 @@ export function NotesPanel() {
   const linked = useMemo(() => selectSectionsForSlide({ sections }, active), [sections, active]);
   const [saved, setSaved] = useState(true);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pending = useRef<{ sessionId: string; slide: number; body: string } | null>(null);
 
-  const onChange = (v: string) => {
-    setNote(active, v);
-    setSaved(false);
+  const flush = async () => {
     if (timer.current) clearTimeout(timer.current);
-    const slide = active;
-    timer.current = setTimeout(async () => {
-      if (sessionId) await saveNote(sessionId, slide, v);
-      setSaved(true);
-    }, 400);
+    timer.current = null;
+    const edit = pending.current;
+    pending.current = null;
+    if (edit) await saveNote(edit.sessionId, edit.slide, edit.body);
   };
 
-  useEffect(() => () => {
+  const onChange = (v: string) => {
+    if (!sessionId) return;
+    // Typing has moved to another slide: the last slide's edit can't share the debounce.
+    if (pending.current && pending.current.slide !== active) void flush();
+    setNote(active, v);
+    setSaved(false);
+    pending.current = { sessionId, slide: active, body: v };
     if (timer.current) clearTimeout(timer.current);
-  }, []);
+    timer.current = setTimeout(() => void flush().then(() => setSaved(true)), 400);
+  };
+
+  useEffect(() => () => void flush(), []);
 
   return (
     <div className="flex h-full flex-col" data-testid="notes-panel">
@@ -51,6 +58,7 @@ export function NotesPanel() {
           className="min-h-[180px] text-[13px] leading-relaxed"
           aria-label={`Speaker notes for slide ${active + 1}`}
           data-testid="notes-body"
+          disabled={!sessionId}
         />
         {linked.length > 0 && (
           <div className="mt-3 space-y-2">

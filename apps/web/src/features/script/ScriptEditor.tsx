@@ -24,9 +24,17 @@ export function useScriptAutosave() {
       const s = useScriptStore.getState();
       if (!s.sessionId || !s.dirty) return;
       await saveScript(s.sessionId, s.sections);
-      useScriptStore.getState().markSaved();
+      // An edit made during the save is still unsaved.
+      if (useScriptStore.getState().sections === s.sections) useScriptStore.getState().markSaved();
     };
     const unsub = useScriptStore.subscribe((s, p) => {
+      // The session is being swapped out: its pending edit can't wait for the debounce.
+      if (p.dirty && p.sessionId && s.sessionId !== p.sessionId) {
+        if (t) clearTimeout(t);
+        t = null;
+        void saveScript(p.sessionId, p.sections);
+        return;
+      }
       if (s.dirty && s.sections !== p.sections) {
         if (t) clearTimeout(t);
         t = setTimeout(() => void flush(), 500);
@@ -46,6 +54,7 @@ export function useScriptAutosave() {
 }
 
 export function ScriptEditor() {
+  const sessionId = useScriptStore((s) => s.sessionId);
   const sections = useScriptStore((s) => s.sections);
   const activeId = useScriptStore((s) => s.activeSectionId);
   const dirty = useScriptStore((s) => s.dirty);
@@ -64,11 +73,12 @@ export function ScriptEditor() {
           placeholder="Paste your speech…"
           className="min-h-[220px] font-mono text-xs leading-relaxed"
           data-testid="script-paste"
+          disabled={!sessionId}
           aria-label="Paste your speech"
         />
         <div className="flex gap-2">
           <Button
-            disabled={!paste.trim()}
+            disabled={!sessionId || !paste.trim()}
             onClick={() => {
               replaceWithText(paste.trim());
               setPaste("");
