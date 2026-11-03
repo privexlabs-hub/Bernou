@@ -25,7 +25,8 @@ export async function importImages(files: ReadonlyArray<File | Blob>, opts: Impo
     }
     try {
       const needsScale = Math.max(bmp.width, bmp.height) > maxEdge;
-      const mime: RasterSlide["mime"] = f.type === "image/png" ? "image/png" : "image/jpeg";
+      // The label must match the bytes: an image small enough to keep as it is keeps its own type.
+      const mime: RasterSlide["mime"] = f.type === "image/png" ? "image/png" : f.type === "image/webp" && !needsScale ? "image/webp" : "image/jpeg";
       const full = needsScale ? await downscaleToBlob(bmp, bmp.width, bmp.height, maxEdge, mime, 0.92) : { blob: f, width: bmp.width, height: bmp.height };
       const thumb = await downscaleToBlob(bmp, bmp.width, bmp.height, thumbEdge, "image/jpeg", 0.8);
       slides.push({ index: i, width: full.width, height: full.height, mime, blob: full.blob, thumb: thumb.blob, thumbWidth: thumb.width, thumbHeight: thumb.height });

@@ -4,32 +4,18 @@
  */
 import { useEffect } from "react";
 import { getSession, updateSession } from "@/db/repositories/sessions";
-import { getSlides, replaceSlides } from "@/db/repositories/slides";
+import { getSlides } from "@/db/repositories/slides";
 import { getScript } from "@/db/repositories/scripts";
 import { getNotes } from "@/db/repositories/notes";
 import { useSessionStore, IDLE_IMPORT } from "@/stores/private/sessionStore";
-import { useDeckStore, type DeckSlide } from "@/stores/public/deckStore";
+import { useDeckStore } from "@/stores/public/deckStore";
 import { useCompositionStore } from "@/stores/public/compositionStore";
 import { useScriptStore } from "@/stores/private/scriptStore";
 import { useNotesStore } from "@/stores/private/notesStore";
 import { useTeleprompterStore } from "@/stores/private/teleprompterStore";
 import { takePendingImport } from "./pendingImport";
-import { runImport } from "./runImport";
-import type { SlideRecord } from "@/db/dexie";
-
-function toDeckSlides(records: SlideRecord[]): DeckSlide[] {
-  return records
-    .sort((a, b) => a.index - b.index)
-    .map((r) => ({
-      assetId: `${r.sessionId}-${r.index}`.replace(/[^A-Za-z0-9_-]/g, ""),
-      index: r.index,
-      width: r.width,
-      height: r.height,
-      mime: r.mime,
-      blob: r.blob,
-      thumbUrl: URL.createObjectURL(r.thumb),
-    }));
-}
+import { toDeckSlides } from "./deckSlides";
+import { importDeck } from "./importDeck";
 
 export function useSessionLoader(sessionId: string | undefined) {
   const setSession = useSessionStore((s) => s.setSession);
@@ -54,29 +40,14 @@ export function useSessionLoader(sessionId: string | undefined) {
 
       const [slides, script, notes] = await Promise.all([getSlides(sessionId), getScript(sessionId), getNotes(sessionId)]);
       if (cancelled) return;
-      deck.setSlides(toDeckSlides(slides));
+      deck.setSlides(toDeckSlides(slides, rec.deckRevision ?? 0));
       deck.setActiveIndex(rec.activeSlideIndex);
       useScriptStore.getState().setSession(sessionId, script?.sections ?? []);
       useNotesStore.getState().setSession(sessionId, notes);
       setLoading(false);
 
       const pending = takePendingImport(sessionId);
-      if (pending) {
-        setImportStatus({ ...IDLE_IMPORT, active: true, stage: "Starting…" });
-        const result = await runImport(pending, (p) => setImportStatus({ fraction: p.fraction, stage: p.stage }));
-        if (cancelled) return;
-        if (result.ok) {
-          await replaceSlides(sessionId, result.slides);
-          const fresh = await getSlides(sessionId);
-          deck.setSlides(toDeckSlides(fresh));
-          await updateSession(sessionId, { sourceFileName: pending.name, sourceKind: result.kind });
-          const updated = await getSession(sessionId);
-          if (updated) setSession(updated);
-          setImportStatus({ ...IDLE_IMPORT, warnings: result.warnings });
-        } else {
-          setImportStatus({ ...IDLE_IMPORT, error: result.error });
-        }
-      }
+      if (pending) await importDeck(sessionId, pending);
     })().catch((e) => {
       if (!cancelled) setLoading(false, (e as Error).message);
     });

@@ -8,3 +8,7 @@ export async function getNotes(sessionId: string): Promise<NoteRecord[]> {
 export async function saveNote(sessionId: string, slideIndex: number, body: string): Promise<void> {
   await db().notes.put({ id: `${sessionId}:${slideIndex}`, sessionId, slideIndex, body, updatedAt: Date.now() });
 }
+
+export async function deleteNotes(sessionId: string): Promise<void> {
+  await db().notes.where("sessionId").equals(sessionId).delete();
+}

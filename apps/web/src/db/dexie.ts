@@ -14,6 +14,8 @@ import Dexie, { type EntityTable } from "dexie";
 
 export interface SessionRecord {
   id: string;
+  /** Goes up each time the slides are replaced. Missing on older rows, meaning 0. */
+  deckRevision?: number;
   title: string;
   createdAt: number;
   updatedAt: number;

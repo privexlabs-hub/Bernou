@@ -12,12 +12,17 @@ import { SessionCard } from "./SessionCard";
 import { SettingsDialog } from "./SettingsDialog";
 import { downloadRecording } from "@/features/recording/recordingFile";
 import { stashPendingImport } from "@/features/session/pendingImport";
+import { checkImportFiles, PPTX_REFUSED_CODE } from "@/features/session/runImport";
+import { PptxGuidanceDialog } from "@/features/slides/PptxGuidanceDialog";
+import { useFileDrop } from "@/features/slides/useFileDrop";
 import { BernouLogo } from "@/ui/logo";
 
 export function Dashboard() {
   const navigate = useNavigate();
   const fileInput = useRef<HTMLInputElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pptxOpen, setPptxOpen] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
 
   const sessions = useLiveQuery(() => db().sessions.orderBy("updatedAt").reverse().limit(24).toArray(), []);
   const scripts = useLiveQuery(() => db().scripts.orderBy("updatedAt").reverse().limit(8).toArray(), []);
@@ -34,17 +39,29 @@ export function Dashboard() {
 
   const onImport = useCallback(
     async (files: FileList | null) => {
-      const file = files?.[0];
-      if (!file) return;
-      const title = file.name.replace(/\.[^.]+$/, "");
-      const s = await createSession(title);
-      // The file is handed to the studio in memory; the studio runs the importer
-      // (step 2.3) and persists rasterised slides. Nothing is uploaded anywhere.
-      stashPendingImport(s.id, file);
-      navigate(`/studio/${s.id}`);
+      const list = Array.from(files ?? []);
+      if (list.length === 0) return;
+      setImportError(null);
+      // Before anything is created, so a refused file leaves no empty presentation.
+      const refused = checkImportFiles(list);
+      if (refused) {
+        if (refused.code === PPTX_REFUSED_CODE) setPptxOpen(true);
+        else setImportError(refused.error);
+        return;
+      }
+      try {
+        const s = await createSession(list[0]!.name.replace(/\.[^.]+$/, ""));
+        // The file is handed to the studio in memory; the studio runs the importer
+        // (step 2.3) and persists rasterised slides. Nothing is uploaded anywhere.
+        stashPendingImport(s.id, list);
+        navigate(`/studio/${s.id}`);
+      } catch (e) {
+        setImportError(`The presentation couldn't be created (${(e as Error).message}).`);
+      }
     },
     [navigate],
   );
+  const drop = useFileDrop((files) => void onImport(files));
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -62,7 +79,7 @@ export function Dashboard() {
           </div>
         </header>
 
-        <main className="mx-auto max-w-6xl px-6 py-10">
+        <main className="mx-auto max-w-6xl px-6 py-10" {...drop} data-testid="dashboard-drop">
           <section className="mb-12">
             <h1 className="text-2xl font-semibold tracking-tight">Start</h1>
             <p className="mt-1 text-sm text-muted-foreground">Everything stays on this device. Nothing is uploaded.</p>
@@ -98,6 +115,7 @@ export function Dashboard() {
               <input
                 ref={fileInput}
                 type="file"
+                multiple
                 accept="application/pdf,image/png,image/jpeg,image/webp,.pptx"
                 className="hidden"
                 data-testid="import-file-input"
@@ -107,6 +125,11 @@ export function Dashboard() {
                 }}
               />
             </div>
+            {importError && (
+              <p className="mt-3 text-sm text-destructive" role="alert" data-testid="dashboard-import-error">
+                {importError}
+              </p>
+            )}
           </section>
 
           <section className="mb-12">
@@ -179,6 +202,7 @@ export function Dashboard() {
             </section>
           </div>
         </main>
+        <PptxGuidanceDialog open={pptxOpen} onOpenChange={setPptxOpen} onChooseFile={() => fileInput.current?.click()} />
 
         <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       </div>

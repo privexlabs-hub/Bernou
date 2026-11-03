@@ -15,6 +15,9 @@ export interface PreviewEngineHandle {
   engine: Engine | null;
 }
 
+/** How far either side of the current slide to keep ready, so changing slide is instant. */
+const NEARBY_SLIDES = 3;
+
 export function usePreviewEngine(cameraSource: FrameSource | null): PreviewEngineHandle {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<Engine | null>(null);
@@ -39,13 +42,26 @@ export function usePreviewEngine(cameraSource: FrameSource | null): PreviewEngin
       },
     });
 
-    // Decode every deck slide into the cache (slides are small enough; keeps slide changes instant).
+    // Decode what's on screen and what's next to it, on demand. The cache can't
+    // hold every slide of a large deck, and whatever it drops has to come back.
+    const decoding = new Set<string>();
     const syncAssets = () => {
-      const slides = useDeckStore.getState().slides;
-      for (const s of slides) if (!cache.has(s.assetId)) void cache.put(s.assetId, s.blob).then(() => eng.renderNow());
+      const { slides, activeIndex } = useDeckStore.getState();
+      for (let i = activeIndex - NEARBY_SLIDES; i <= activeIndex + NEARBY_SLIDES; i++) {
+        const s = slides[i];
+        if (!s || cache.has(s.assetId) || decoding.has(s.assetId)) continue;
+        decoding.add(s.assetId);
+        void cache.put(s.assetId, s.blob).then(() => {
+          decoding.delete(s.assetId);
+          eng.renderNow();
+        });
+      }
     };
     syncAssets();
-    const unsubDeck = useDeckStore.subscribe((s, p) => s.slides !== p.slides && (cache.clear(), syncAssets()));
+    const unsubDeck = useDeckStore.subscribe((s, p) => {
+      if (s.slides !== p.slides) cache.clear();
+      if (s.slides !== p.slides || s.activeIndex !== p.activeIndex) syncAssets();
+    });
 
     const unsubPayload = subscribeAudiencePayload((p) => {
       eng.resize(p.output.width, p.output.height);

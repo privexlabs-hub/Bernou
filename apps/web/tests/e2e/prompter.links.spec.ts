@@ -191,9 +191,8 @@ test.describe("slide links are optional @nomedia", () => {
     await link(page, 0, 12);
     await expect(page.getByTestId("script-save-state")).toHaveText("Saved", { timeout: 5000 });
     await page.getByTestId("studio-import-input").setInputFiles(fileURLToPath(new URL("../../../../fixtures/decks/notes-pages.pdf", import.meta.url)));
+    await page.getByTestId("replace-keep").click();
     await expect(page.getByTestId("slide-counter")).toHaveText("1 / 4", { timeout: 30_000 });
-    const ask = page.getByTestId("replace-keep");
-    if (await ask.isVisible().catch(() => false)) await ask.click();
 
     const trigger = page.getByTestId("section-slide").first();
     await expect(trigger).toContainText("Slide 12");

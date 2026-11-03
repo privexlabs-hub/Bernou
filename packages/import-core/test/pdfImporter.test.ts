@@ -57,6 +57,14 @@ describe("importPdf", () => {
     expect(r.slides.map((s) => s.index)).toEqual([...Array(20).keys()]);
   }, 60_000);
 
+  it("renders small pages up to maxEdge, not at their point size", async () => {
+    const { importPdf } = await load();
+    const file = new Blob([readFileSync(resolve(decks, "lecture-20.pdf"))], { type: "application/pdf" });
+    const r = await importPdf(file, { maxEdge: 1920, thumbEdge: 120 });
+    expect(r.slides[0]!.width).toBe(1920);
+    expect(r.slides[0]!.height).toBe(1080);
+  }, 60_000);
+
   it("flags a notes-pages PDF (P8)", async () => {
     const { importPdf } = await load();
     const file = new Blob([readFileSync(resolve(decks, "notes-pages.pdf"))], { type: "application/pdf" });

@@ -77,7 +77,10 @@ if (isBroadcastChannelSupported()) {
         applyPayload(m.payload);
         break;
       case "asset":
-        if (m.blob.type !== m.mime) return; // re-check the declared type
+        if (m.blob.type !== m.mime) {
+          requested.delete(m.assetId);
+          return; // re-check the declared type
+        }
         void cache.put(m.assetId, m.blob).then(() => {
           requested.delete(m.assetId);
           engine.renderNow();

@@ -12,7 +12,7 @@
  */
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { canvasToBlob, downscaleToBlob, fitWithin, makeCanvas } from "../raster";
+import { canvasToBlob, downscaleToBlob, makeCanvas } from "../raster";
 import { ImportError, type ImportOptions, type ImportResult, type RasterSlide } from "../types";
 
 // Vite resolves this to a URL for the worker file (see ?url). The app sets
@@ -60,7 +60,9 @@ export async function importPdf(file: File | Blob, opts: ImportOptions = {}): Pr
 
       const page = await doc.getPage(i);
       const base = page.getViewport({ scale: 1 });
-      const { scale } = fitWithin(base.width, base.height, maxEdge);
+      // Up as well as down: a page's size in points says nothing about its detail,
+      // and a 720pt slide stretched to the output afterwards would look soft.
+      const scale = maxEdge / Math.max(base.width, base.height);
       const viewport = page.getViewport({ scale });
       const width = Math.round(viewport.width);
       const height = Math.round(viewport.height);

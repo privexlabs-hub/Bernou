@@ -11,6 +11,8 @@ export interface ImportStatus {
   stage: string;
   error: string | null;
   warnings: string[];
+  /** What the last import did: without this, a same-looking deck seems like nothing happened. */
+  done: string | null;
 }
 
 interface SessionState {
@@ -23,7 +25,7 @@ interface SessionState {
   setImportStatus: (patch: Partial<ImportStatus>) => void;
 }
 
-export const IDLE_IMPORT: ImportStatus = { active: false, fraction: 0, stage: "", error: null, warnings: [] };
+export const IDLE_IMPORT: ImportStatus = { active: false, fraction: 0, stage: "", error: null, warnings: [], done: null };
 
 export const useSessionStore = create<SessionState>((set, get) => ({
   session: null,

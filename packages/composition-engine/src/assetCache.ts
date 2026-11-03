@@ -19,6 +19,8 @@ export interface AssetCache extends AssetResolver {
 export function createAssetCache(maxEntries = 64): AssetCache {
   const map = new Map<string, CanvasImageSource>();
   const pending = new Map<string, Promise<void>>();
+  // A decode still running when the cache is cleared must not put back what it was cleared of.
+  let generation = 0;
 
   const evictIfNeeded = () => {
     while (map.size > maxEntries) {
@@ -45,7 +47,9 @@ export function createAssetCache(maxEntries = 64): AssetCache {
     has: (id) => map.has(id),
     async put(id, blob) {
       const p = (async () => {
+        const started = generation;
         const bmp = await createImageBitmap(blob);
+        if (started !== generation) return bmp.close();
         release(map.get(id));
         map.set(id, bmp);
         evictIfNeeded();
@@ -67,6 +71,7 @@ export function createAssetCache(maxEntries = 64): AssetCache {
       map.delete(id);
     },
     clear() {
+      generation++;
       for (const v of map.values()) release(v);
       map.clear();
     },
