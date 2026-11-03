@@ -88,6 +88,7 @@ export function useSessionLoader(sessionId: string | undefined) {
       // Private text must not stay on screen while the next session loads.
       useScriptStore.getState().setSession(null, []);
       useNotesStore.getState().setSession(null, []);
+      useTeleprompterStore.getState().resetPlayback();
       setImportStatus(IDLE_IMPORT);
     };
   }, [sessionId, setSession, setLoading, setImportStatus]);

@@ -391,7 +391,9 @@ test("deleting a recording removes its file; Erase removes them all", async ({ p
   expect(await opfsFiles(page)).toHaveLength(1);
 
   await page.getByRole("button", { name: "Settings" }).click();
+  const reloaded = page.waitForEvent("load"); // Erase reloads the page
   await page.getByRole("button", { name: "Erase" }).click();
+  await reloaded;
   await expect(page.getByTestId("new-presentation")).toBeVisible();
   expect(await opfsFiles(page)).toEqual([]);
 });

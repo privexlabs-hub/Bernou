@@ -11,6 +11,11 @@ interface TeleprompterState {
   model: SM.ScrollModel;
   /** Presenter-chosen: follow the active slide (jump to linked section). */
   followSlides: boolean;
+  /** Whether the prompter's tab is showing. It only moves while it can be read. */
+  visible: boolean;
+  setVisible: (visible: boolean) => void;
+  /** Back to the top, stopped: for leaving a session. */
+  resetPlayback: () => void;
   loadSettings: (s: TeleprompterSettings) => void;
   patchSettings: (p: Partial<TeleprompterSettings>) => void;
   setFollowSlides: (b: boolean) => void;
@@ -33,6 +38,10 @@ export const useTeleprompterStore = create<TeleprompterState>((set, get) => ({
   settings: structuredClone(DEFAULT_TELEPROMPTER),
   model: SM.createScrollModel(DEFAULT_TELEPROMPTER.speed),
   followSlides: true,
+  visible: false,
+  // Forgets the last tick, or the gap would count as elapsed time on return.
+  setVisible: (visible) => set({ visible, model: { ...get().model, lastTs: null } }),
+  resetPlayback: () => set({ model: SM.createScrollModel(get().settings.speed) }),
   loadSettings: (settings) => set({ settings: structuredClone(settings), model: SM.setSpeed(SM.stop(get().model), settings.speed) }),
   patchSettings: (p) => {
     const settings = { ...get().settings, ...p };

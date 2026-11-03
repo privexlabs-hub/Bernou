@@ -29,6 +29,7 @@ export function Teleprompter() {
   const settings = useTeleprompterStore((s) => s.settings);
   const model = useTeleprompterStore((s) => s.model);
   const followSlides = useTeleprompterStore((s) => s.followSlides);
+  const visible = useTeleprompterStore((s) => s.visible);
   const { patchSettings, play, pause, toggle, stop, reset, nudge, seek, setMaxPosition, tick, setFollowSlides } = useTeleprompterStore.getState();
   const sections = useScriptStore((s) => s.sections);
   const activeSlide = useDeckStore((s) => s.activeIndex);
@@ -38,10 +39,11 @@ export function Teleprompter() {
   const sectionEls = useRef(new Map<string, HTMLElement>());
   const [showSettings, setShowSettings] = useState(false);
   const [currentSectionId, setCurrentSectionId] = useState<string | null>(null);
+  const [viewportHeight, setViewportHeight] = useState(0);
 
   // rAF loop while playing
   useEffect(() => {
-    if (model.status !== "playing") return;
+    if (model.status !== "playing" || !visible) return;
     let id = 0;
     const loop = (ts: number) => {
       tick(ts);
@@ -49,20 +51,30 @@ export function Teleprompter() {
     };
     id = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(id);
-  }, [model.status, tick]);
+  }, [model.status, visible, tick]);
 
   // Apply model position to the DOM and measure max position.
   useEffect(() => {
     const vp = viewport.current;
     const ct = content.current;
     if (!vp || !ct) return;
-    const measure = () => setMaxPosition(Math.max(0, ct.scrollHeight - vp.clientHeight));
+    const measure = () => {
+      setViewportHeight(vp.clientHeight);
+      setMaxPosition(Math.max(0, ct.scrollHeight - vp.clientHeight));
+    };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(vp);
     ro.observe(ct);
     return () => ro.disconnect();
-  }, [sections, settings.fontSize, settings.readingZone, setMaxPosition]);
+  }, [sections, settings.fontSize, settings.readingZone, settings.readingLine, setMaxPosition]);
+
+  // No text to scroll: a playing prompter would otherwise run on with Pause disabled.
+  useEffect(() => {
+    if (sections.length > 0) return;
+    setMaxPosition(0);
+    stop();
+  }, [sections.length, setMaxPosition, stop]);
 
   useEffect(() => {
     const vp = viewport.current;
@@ -153,7 +165,7 @@ export function Teleprompter() {
               <Square />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Stop (keeps position) — Esc</TooltipContent>
+          <TooltipContent>Stop (keeps position). Esc, when the text is focused</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -161,7 +173,7 @@ export function Teleprompter() {
               <RotateCcw />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Reset to top — Home</TooltipContent>
+          <TooltipContent>Reset to top. Home, when the text is focused</TooltipContent>
         </Tooltip>
         <span className="mx-1 h-5 w-px bg-border" />
         <Tooltip>
@@ -170,7 +182,7 @@ export function Teleprompter() {
               <Minus />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Slower — ←</TooltipContent>
+          <TooltipContent>Slower. ←, when the text is focused</TooltipContent>
         </Tooltip>
         <span className="flex w-16 items-center justify-center gap-1 font-mono text-xs text-muted-foreground" data-testid="prompter-speed">
           <Gauge className="h-3 w-3" /> {settings.speed}
@@ -181,7 +193,7 @@ export function Teleprompter() {
               <Plus />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Faster — →</TooltipContent>
+          <TooltipContent>Faster. →, when the text is focused</TooltipContent>
         </Tooltip>
         <span className="flex-1" />
         <span className="font-mono text-[11px] text-muted-foreground" data-testid="prompter-remaining" title="Time remaining at this speed">
@@ -265,8 +277,9 @@ export function Teleprompter() {
                 ref={content}
                 className="px-6"
                 style={{
-                  paddingTop: `${settings.readingLine * 100}%`,
-                  paddingBottom: `${(1 - settings.readingLine) * 100}%`,
+                  // In px: percentages here would be of the width, not the height.
+                  paddingTop: viewportHeight * settings.readingLine,
+                  paddingBottom: viewportHeight * (1 - settings.readingLine),
                   fontSize: settings.fontSize,
                   lineHeight: 1.45,
                   color: settings.textColor,
