@@ -3,11 +3,21 @@
  * help. The publisher lives for the lifetime of the studio.
  */
 import { useEffect, useRef, useState } from "react";
+import type { AudienceCameraError } from "@bernou/audience-protocol";
 import { ExternalLink, HelpCircle, MonitorUp } from "lucide-react";
 import { Button } from "@/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/tooltip";
 import { AUDIENCE_WINDOW_TITLE, createAudiencePublisher, type AudiencePublisher } from "./audiencePublisher";
+
+const AUDIENCE_CAMERA_ERRORS: Record<AudienceCameraError, string> = {
+  denied: "The audience window was blocked from the camera.",
+  "in-use": "The audience window can't open the camera. Another app may be using it.",
+  "not-found": "The audience window can't find the camera.",
+  "not-matched": "The audience window can't tell which camera to show.",
+  ended: "The audience window lost the camera.",
+  unknown: "The audience window can't show the camera.",
+};
 
 /** Module-level singleton so the emergency stop (2.10) can reach it. */
 let activePublisher: AudiencePublisher | null = null;
@@ -20,9 +30,10 @@ export function AudienceWindowControls() {
   const [open, setOpen] = useState(false);
   const [help, setHelp] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  const [cameraError, setCameraError] = useState<AudienceCameraError | null>(null);
 
   useEffect(() => {
-    pub.current = createAudiencePublisher(setOpen);
+    pub.current = createAudiencePublisher(setOpen, setCameraError);
     activePublisher = pub.current;
     return () => {
       pub.current?.dispose();
@@ -59,6 +70,11 @@ export function AudienceWindowControls() {
       <Button variant="ghost" size="icon-sm" onClick={() => setHelp(true)} aria-label="How to share the audience window" data-testid="audience-window-help">
         <HelpCircle />
       </Button>
+      {cameraError && (
+        <span className="max-w-64 text-[11px] leading-tight text-destructive" role="alert" data-testid="audience-camera-error">
+          {AUDIENCE_CAMERA_ERRORS[cameraError]} Turn the camera off and on to retry.
+        </span>
+      )}
       {blocked && (
         <span className="text-[11px] text-destructive" role="alert" data-testid="audience-window-blocked">
           Popup blocked — allow popups for this site and try again.

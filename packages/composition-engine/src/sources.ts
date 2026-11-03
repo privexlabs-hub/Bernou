@@ -23,7 +23,9 @@ export async function attachStreamToVideo(stream: MediaStream, video: HTMLVideoE
   video.playsInline = true;
   video.autoplay = true;
   video.srcObject = stream;
-  await video.play().catch(() => undefined);
+  // play() may never settle (or fail) for a video off the page. It isn't what
+  // decides readiness: videoFrameSource checks each frame, so don't wait forever.
+  await Promise.race([video.play().catch(() => undefined), new Promise((r) => setTimeout(r, 2000))]);
   if (video.videoWidth === 0) {
     await new Promise<void>((resolve) => {
       const done = () => {

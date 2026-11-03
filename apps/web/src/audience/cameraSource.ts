@@ -5,6 +5,7 @@
  *
  * This file imports nothing from the presenter app.
  */
+import type { AudienceCameraError } from "@bernou/audience-protocol";
 import { attachStreamToVideo, videoFrameSource, type FrameSource } from "@bernou/composition-engine";
 
 export interface AudienceCamera {
@@ -17,27 +18,47 @@ export interface AudienceCamera {
   use(deviceId: string | null): Promise<void>;
   /** Stop everything now, including a start still in flight. */
   release(): void;
-  /** Human-readable last failure, for the presenter (sent back over the channel in a later step). */
-  lastError: string | null;
+  /** Why there is no camera, reported to the presenter over the channel. */
+  lastError: AudienceCameraError | null;
 }
 
 const CAPTURE = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
 
 /**
  * Chromium can give one camera a different deviceId in each window, so the
- * presenter's id may mean nothing here. With only one camera there is nothing
- * to confuse it with. With several, fail rather than put the wrong one on air.
+ * presenter's id may mean nothing here. With exactly one real camera listed
+ * there is nothing to confuse it with, and it's opened by its own id. With
+ * several, or a list masked by missing permission, fail rather than risk the
+ * wrong camera on air.
  */
 async function openCamera(deviceId: string): Promise<MediaStream> {
+  const open = (id: string) => navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: id }, ...CAPTURE }, audio: false });
   try {
-    return await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId }, ...CAPTURE }, audio: false });
+    return await open(deviceId);
   } catch (e) {
     if ((e as Error)?.name !== "OverconstrainedError") throw e;
     const cameras = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
-    if (cameras.length !== 1) throw e;
-    return navigator.mediaDevices.getUserMedia({ video: CAPTURE, audio: false });
+    if (cameras.length !== 1 || !cameras[0]!.deviceId) throw e;
+    return open(cameras[0]!.deviceId);
   }
 }
+
+const errorCode = (e: unknown): AudienceCameraError => {
+  switch ((e as Error)?.name) {
+    case "NotAllowedError":
+    case "SecurityError":
+      return "denied";
+    case "NotReadableError":
+    case "AbortError":
+      return "in-use";
+    case "NotFoundError":
+      return "not-found";
+    case "OverconstrainedError":
+      return "not-matched";
+    default:
+      return "unknown";
+  }
+};
 
 export function createAudienceCamera(onSourceChange: (source: FrameSource | null) => void): AudienceCamera {
   let stream: MediaStream | null = null;
@@ -92,7 +113,7 @@ export function createAudienceCamera(onSourceChange: (source: FrameSource | null
     } catch (e) {
       stopStream(acquired);
       if (op !== generation) return;
-      cam.lastError = (e as Error)?.name ?? "CameraError";
+      cam.lastError = errorCode(e);
       failedFor = deviceId;
     } finally {
       if (op === generation) inFlight = null;
@@ -111,6 +132,7 @@ export function createAudienceCamera(onSourceChange: (source: FrameSource | null
       const op = ++generation;
       inFlight = null;
       failedFor = null;
+      cam.lastError = null;
       teardown();
       cam.deviceId = deviceId;
       if (!deviceId) return Promise.resolve();
@@ -121,6 +143,7 @@ export function createAudienceCamera(onSourceChange: (source: FrameSource | null
       generation++;
       inFlight = null;
       failedFor = null;
+      cam.lastError = null;
       cam.deviceId = null;
       teardown();
     },

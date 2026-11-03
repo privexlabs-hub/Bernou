@@ -52,10 +52,13 @@ export function MediaControls() {
           <TooltipContent>{cameraLive ? "Camera is live — click to turn off" : "Turn camera on"}</TooltipContent>
         </Tooltip>
         <Select
-          value={selectedCameraId ?? ""}
-          onValueChange={(id) => {
+          // Empty while off: Select only reports changes, so picking the camera
+          // that's already selected would otherwise do nothing.
+          value={cameraLive ? (selectedCameraId ?? "") : ""}
+          onValueChange={(value) => {
+            const id = deviceIdFromItem(value);
             useDevicesStore.setState({ selectedCameraId: id });
-            if (cameraLive) void startCamera(id);
+            void startCamera(id);
           }}
         >
           <SelectTrigger className="h-7 w-44 border-transparent bg-transparent" aria-label="Camera" data-testid="camera-select">
@@ -67,8 +70,8 @@ export function MediaControls() {
                 No camera found
               </SelectItem>
             )}
-            {cameras.map((c) => (
-              <SelectItem key={c.deviceId} value={c.deviceId}>
+            {cameras.map((c, i) => (
+              <SelectItem key={itemValue(c.deviceId, i)} value={itemValue(c.deviceId, i)}>
                 {c.label}
               </SelectItem>
             ))}
@@ -97,10 +100,11 @@ export function MediaControls() {
           <TooltipContent>{micLive ? "Microphone is live — click to turn off" : "Turn microphone on"}</TooltipContent>
         </Tooltip>
         <Select
-          value={selectedMicId ?? ""}
-          onValueChange={(id) => {
+          value={micLive ? (selectedMicId ?? "") : ""}
+          onValueChange={(value) => {
+            const id = deviceIdFromItem(value);
             useDevicesStore.setState({ selectedMicId: id });
-            if (micLive) void startMic(id);
+            void startMic(id);
           }}
         >
           <SelectTrigger className="h-7 w-44 border-transparent bg-transparent" aria-label="Microphone" data-testid="mic-select">
@@ -112,8 +116,8 @@ export function MediaControls() {
                 No microphone found
               </SelectItem>
             )}
-            {microphones.map((m) => (
-              <SelectItem key={m.deviceId} value={m.deviceId}>
+            {microphones.map((m, i) => (
+              <SelectItem key={itemValue(m.deviceId, i)} value={itemValue(m.deviceId, i)}>
                 {m.label}
               </SelectItem>
             ))}
@@ -181,3 +185,12 @@ export function LevelMeter({ active }: { active: boolean }) {
     </div>
   );
 }
+
+/**
+ * Until the first permission grant browsers report empty device ids, which
+ * Select can't tell apart or report as a change. Such an item means "whichever
+ * device the browser offers".
+ */
+const UNNAMED_DEVICE = "__unnamed-";
+const itemValue = (deviceId: string, index: number) => deviceId || `${UNNAMED_DEVICE}${index}`;
+const deviceIdFromItem = (value: string) => (value.startsWith(UNNAMED_DEVICE) ? null : value);

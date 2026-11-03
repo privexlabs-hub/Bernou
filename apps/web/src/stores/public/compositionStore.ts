@@ -30,7 +30,9 @@ interface CompositionState extends CompositionSettings {
 export const useCompositionStore = create<CompositionState>((set, get) => ({
   ...structuredClone(DEFAULT_COMPOSITION),
   cameraDeviceId: null,
-  load: (c) => set({ ...structuredClone(c) }),
+  // camera.enabled is about this run, not the session: it says a stream exists,
+  // so neither the stored value nor a load may change it.
+  load: (c) => set({ ...structuredClone(c), camera: { ...structuredClone(c.camera), enabled: get().camera.enabled } }),
   setProfile: (profile) => set({ profile }),
   setLayout: (layout) => set({ layout }),
   setBackground: (background) => set({ background }),
@@ -39,6 +41,6 @@ export const useCompositionStore = create<CompositionState>((set, get) => ({
   patchBranding: (patch) => set({ branding: { ...get().branding, ...patch } }),
   snapshot: () => {
     const { profile, background, layout, camera, branding } = get();
-    return structuredClone({ profile, background, layout, camera, branding });
+    return structuredClone({ profile, background, layout, camera: { ...camera, enabled: false }, branding });
   },
 }));

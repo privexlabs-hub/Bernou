@@ -41,13 +41,20 @@ export const BlankMessageSchema = z.object({ type: z.literal("blank") }).strict(
 /** Presenter window is closing; audience shows a neutral frame. */
 export const ByeMessageSchema = z.object({ type: z.literal("bye") }).strict();
 
+/** Why the audience window has no camera, by code only: no device names or browser text. */
+export const AudienceCameraErrorSchema = z.enum(["denied", "in-use", "not-found", "not-matched", "ended", "unknown"]);
+export type AudienceCameraError = z.infer<typeof AudienceCameraErrorSchema>;
+
+/** Audience window's periodic heartbeat, so the presenter knows it's there and whether its camera works. */
+export const AudienceStatusMessageSchema = z.object({ type: z.literal("audience-status"), cameraError: AudienceCameraErrorSchema.nullable() }).strict();
+
 export const PresenterToAudienceSchema = z.discriminatedUnion("type", [
   PayloadMessageSchema,
   AssetMessageSchema,
   BlankMessageSchema,
   ByeMessageSchema,
 ]);
-export const AudienceToPresenterSchema = z.discriminatedUnion("type", [HelloMessageSchema, AssetRequestMessageSchema]);
+export const AudienceToPresenterSchema = z.discriminatedUnion("type", [HelloMessageSchema, AssetRequestMessageSchema, AudienceStatusMessageSchema]);
 
 export type HelloMessage = z.infer<typeof HelloMessageSchema>;
 export type PayloadMessage = { type: "payload"; payload: AudiencePayload };
@@ -57,4 +64,5 @@ export type BlankMessage = z.infer<typeof BlankMessageSchema>;
 export type ByeMessage = z.infer<typeof ByeMessageSchema>;
 
 export type PresenterToAudience = PayloadMessage | AssetMessage | BlankMessage | ByeMessage;
-export type AudienceToPresenter = HelloMessage | AssetRequestMessage;
+export type AudienceStatusMessage = z.infer<typeof AudienceStatusMessageSchema>;
+export type AudienceToPresenter = HelloMessage | AssetRequestMessage | AudienceStatusMessage;

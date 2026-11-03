@@ -30,6 +30,9 @@ export function CameraPanel() {
   const patchCamera = useCompositionStore((s) => s.patchCamera);
   const setLayout = useCompositionStore((s) => s.setLayout);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const busy = useDevicesStore((s) => s.cameraBusy);
+  const startCamera = useDevicesStore((s) => s.startCamera);
+  const stopCamera = useDevicesStore((s) => s.stopCamera);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -54,7 +57,12 @@ export function CameraPanel() {
       <div>
         <div className="mb-2 flex items-center justify-between">
           <span className="panel-title">Camera preview (private)</span>
-          {live && <span className="flex items-center gap-1 text-[10px] text-live">● live</span>}
+          <div className="flex items-center gap-2">
+            {live && <span className="flex items-center gap-1 text-[10px] text-live">● live</span>}
+            <Button size="sm" variant={live ? "secondary" : "default"} className="h-6 px-2 text-xs" disabled={busy} onClick={() => (live ? stopCamera() : void startCamera())} data-testid="camera-panel-toggle">
+              {live ? "Turn off" : "Turn on"}
+            </Button>
+          </div>
         </div>
         <div className="aspect-video overflow-hidden rounded-md border border-border/70 bg-black">
           <video ref={videoRef} muted playsInline className="h-full w-full object-cover" style={{ transform: camera.mirror ? "scaleX(-1)" : undefined }} data-testid="camera-raw-preview" />

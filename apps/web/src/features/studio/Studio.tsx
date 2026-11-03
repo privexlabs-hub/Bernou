@@ -22,7 +22,7 @@ export function Studio() {
 
   const loading = useSessionStore((s) => s.loading);
   const loadError = useSessionStore((s) => s.loadError);
-  const { source: cameraSource } = useCameraSource();
+  const { source: cameraSource, stalled: cameraStalled } = useCameraSource();
 
   // Release camera + microphone when leaving the studio (spec §10).
   useEffect(() => () => void useDevicesStore.getState().releaseAll(), []);
@@ -49,7 +49,7 @@ export function Studio() {
             </Panel>
             <PanelResizeHandle className="mx-1 w-1 rounded bg-transparent transition-colors hover:bg-primary/40 data-[resize-handle-active]:bg-primary/60" />
             <Panel defaultSize={54} minSize={30} className="min-w-0">
-              <PreviewPanel cameraSource={cameraSource} />
+              <PreviewPanel cameraSource={cameraSource} cameraStalled={cameraStalled} />
             </Panel>
             <PanelResizeHandle className="mx-1 w-1 rounded bg-transparent transition-colors hover:bg-primary/40 data-[resize-handle-active]:bg-primary/60" />
             <Panel defaultSize={30} minSize={18} collapsible collapsedSize={0} className="min-w-0">

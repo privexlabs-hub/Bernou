@@ -40,6 +40,8 @@ let current: AudiencePayload | null = null;
 let lastSeq = -1;
 const requested = new Set<string>();
 
+const sendStatus = () => channel?.send({ type: "audience-status", cameraError: camera.lastError });
+
 function applyPayload(p: AudiencePayload) {
   if (p.seq <= lastSeq) return; // last-writer-wins, ignore stale
   lastSeq = p.seq;
@@ -48,7 +50,7 @@ function applyPayload(p: AudiencePayload) {
   engine.setPayload(p);
   // camera follows the payload's deviceId
   const wantCam = p.camera.enabled && p.layout !== "slide-full" && p.layout !== "blank" ? p.camera.deviceId : null;
-  void camera.use(wantCam);
+  void camera.use(wantCam).then(sendStatus);
   // request any asset we don't have
   const need = [p.slide?.assetId, p.branding?.logoAssetId].filter((x): x is string => !!x);
   for (const id of need) {
@@ -93,8 +95,11 @@ if (isBroadcastChannelSupported()) {
     if (current) clearInterval(retry);
     else channel?.send({ type: "hello", from: "audience" });
   }, 1000);
+  sendStatus();
+  const heartbeat = setInterval(sendStatus, 2000);
   window.addEventListener("pagehide", () => {
     clearInterval(retry);
+    clearInterval(heartbeat);
     camera.release();
     engine.stop();
     channel?.close();

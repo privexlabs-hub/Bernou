@@ -114,7 +114,7 @@ function Indicator({ on, label, testId, children }: { on: boolean; label: string
     <Tooltip>
       <TooltipTrigger asChild>
         <span
-          className={cn("flex h-5 w-5 items-center justify-center rounded [&_svg]:size-3.5", on ? "text-live" : "text-muted-foreground/40")}
+          className={cn("flex h-5 w-5 cursor-default items-center justify-center rounded [&_svg]:size-3.5", on ? "text-live" : "text-muted-foreground/40")}
           data-testid={testId}
           data-on={on ? "true" : "false"}
           aria-label={`${label}: ${on ? "active" : "off"}`}
@@ -124,6 +124,7 @@ function Indicator({ on, label, testId, children }: { on: boolean; label: string
       </TooltipTrigger>
       <TooltipContent>
         {label}: {on ? "active" : "off"}
+        {!on && label !== "Audience window" && <> — turn it on in the bottom toolbar</>}
       </TooltipContent>
     </Tooltip>
   );

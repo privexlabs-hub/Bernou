@@ -34,9 +34,20 @@ export function createScheduler(targetFps = 30, doc: Document | null = typeof do
 
   const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
+  // One bad frame must not end the output. Logged once: this runs at frame rate.
+  let reported = false;
+  const safeTick = (ts: number) => {
+    try {
+      tick?.(ts);
+    } catch (e) {
+      if (!reported) console.error("composition-engine: frame failed", e);
+      reported = true;
+    }
+  };
+
   const loopRaf = () => {
     rafId = requestAnimationFrame((ts) => {
-      tick?.(ts);
+      safeTick(ts);
       if (current === "raf") loopRaf();
     });
   };
@@ -45,7 +56,7 @@ export function createScheduler(targetFps = 30, doc: Document | null = typeof do
     try {
       const blob = new Blob([WORKER_SRC], { type: "text/javascript" });
       worker = new Worker(URL.createObjectURL(blob));
-      worker.onmessage = () => tick?.(now());
+      worker.onmessage = () => safeTick(now());
       worker.postMessage({ type: "start", interval });
       return true;
     } catch {
@@ -55,7 +66,7 @@ export function createScheduler(targetFps = 30, doc: Document | null = typeof do
 
   const loopTimeout = () => {
     timeoutId = setTimeout(() => {
-      tick?.(now());
+      safeTick(now());
       if (current === "timeout") loopTimeout();
     }, interval);
   };

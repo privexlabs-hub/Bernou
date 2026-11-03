@@ -12,7 +12,9 @@ import type { AudiencePayload } from "@bernou/audience-protocol";
 import { useDeckStore, selectActiveSlide } from "./public/deckStore";
 import { useCompositionStore } from "./public/compositionStore";
 
-let seq = 0;
+// From the clock, not 0: an audience window outlives a presenter reload and
+// ignores anything not newer than what it last saw.
+let seq = Date.now();
 
 /** Build the payload from the current public state. Pure apart from `seq`. */
 export function buildCurrentAudiencePayload(): AudiencePayload {
@@ -47,6 +49,8 @@ export function buildCurrentAudiencePayload(): AudiencePayload {
   });
 }
 
+const HIDDEN_TAB_FALLBACK_MS = 100;
+
 /**
  * Subscribe to public-state changes and receive a fresh payload, coalesced to
  * one per animation frame. Used by the preview, the audience-window
@@ -55,6 +59,7 @@ export function buildCurrentAudiencePayload(): AudiencePayload {
 export function subscribeAudiencePayload(listener: (p: AudiencePayload) => void): () => void {
   let scheduled = false;
   const emit = () => {
+    if (!scheduled) return;
     scheduled = false;
     listener(buildCurrentAudiencePayload());
   };
@@ -62,11 +67,12 @@ export function subscribeAudiencePayload(listener: (p: AudiencePayload) => void)
     if (scheduled) return;
     scheduled = true;
     if (typeof requestAnimationFrame === "function") requestAnimationFrame(emit);
-    else setTimeout(emit, 0);
+    // Animation frames stop in a hidden tab, and slide changes must still go out.
+    setTimeout(emit, HIDDEN_TAB_FALLBACK_MS);
   };
   const u1 = useDeckStore.subscribe(schedule);
   const u2 = useCompositionStore.subscribe(schedule);
-  emit();
+  listener(buildCurrentAudiencePayload());
   return () => {
     u1();
     u2();

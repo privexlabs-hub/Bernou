@@ -78,7 +78,7 @@ test("P2 — no private canary ever crosses the audience channel", async ({ page
   expect(ours.some((b) => b.startsWith("{type:payload"))).toBe(true);
   expect(ours.some((b) => b.startsWith("{type:asset,"))).toBe(true);
   for (const b of ours) {
-    expect(b).toMatch(/^\{type:(payload|asset|blank|bye|hello|asset-request)[,}]/);
+    expect(b).toMatch(/^\{type:(payload|asset|blank|bye|hello|asset-request|audience-status)[,}]/);
     expect(b).not.toContain("lecture-20");
     expect(b).not.toMatch(/label|Fake Default|notes|script|teleprompter|recording|title:[^n]/i);
   }

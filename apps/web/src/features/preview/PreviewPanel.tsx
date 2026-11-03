@@ -10,10 +10,11 @@ import { useLayoutEffect, useRef, useState } from "react";
 import type { FrameSource } from "@bernou/composition-engine";
 import { usePreviewEngine } from "./usePreviewEngine";
 import { OverlayHandles } from "./OverlayHandles";
+import { CameraHint } from "./CameraHint";
 import { Eye } from "lucide-react";
 import type { DisplayRect } from "./displayRect";
 
-export function PreviewPanel({ cameraSource }: { cameraSource: FrameSource | null }) {
+export function PreviewPanel({ cameraSource, cameraStalled }: { cameraSource: FrameSource | null; cameraStalled: boolean }) {
   const { canvasRef, payload } = usePreviewEngine(cameraSource);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [display, setDisplay] = useState<DisplayRect>({ left: 0, top: 0, width: 0, height: 0 });
@@ -57,6 +58,7 @@ export function PreviewPanel({ cameraSource }: { cameraSource: FrameSource | nul
           style={{ left: display.left, top: display.top, width: display.width, height: display.height }}
         />
         {payload && <OverlayHandles payload={payload} display={display} />}
+        <CameraHint stalled={cameraStalled} />
       </div>
     </section>
   );

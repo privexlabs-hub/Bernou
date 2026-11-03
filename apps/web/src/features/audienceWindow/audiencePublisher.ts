@@ -6,7 +6,7 @@
  * - Answers `hello` with the current payload and `asset-request` with the
  *   rasterised slide Blob — and nothing else. It reads ONLY public stores.
  */
-import { AudienceChannel, type AudiencePayload } from "@bernou/audience-protocol";
+import { AudienceChannel, type AudienceCameraError, type AudiencePayload } from "@bernou/audience-protocol";
 import { buildCurrentAudiencePayload, subscribeAudiencePayload } from "@/stores/audienceBridge";
 import { useDeckStore } from "@/stores/public/deckStore";
 
@@ -28,12 +28,27 @@ export interface AudiencePublisher {
   dispose(): void;
 }
 
-export function createAudiencePublisher(onState?: (open: boolean) => void): AudiencePublisher {
+/** A window that hasn't reported for this long is gone. */
+const HEARTBEAT_STALE_MS = 8000;
+
+export function createAudiencePublisher(onState?: (open: boolean) => void, onCameraError?: (error: AudienceCameraError | null) => void): AudiencePublisher {
   const channel = new AudienceChannel("presenter");
   let win: Window | null = null;
   let blanked = false;
   let latest: AudiencePayload | null = null;
   let hellos = 0;
+  let lastHeard = 0;
+  let reportedOpen = false;
+
+  // A presenter reload loses the window handle while the window lives on, so
+  // without a handle its heartbeat is how we know it's still there.
+  const isOpen = () => (win ? !win.closed : Date.now() - lastHeard < HEARTBEAT_STALE_MS);
+  const report = () => {
+    const open = isOpen();
+    if (open !== reportedOpen) onState?.(open);
+    reportedOpen = open;
+    if (!open) onCameraError?.(null);
+  };
 
   const publish = (p: AudiencePayload) => {
     latest = p;
@@ -42,7 +57,11 @@ export function createAudiencePublisher(onState?: (open: boolean) => void): Audi
   const unsubscribe = subscribeAudiencePayload(publish);
 
   channel.onMessage((m) => {
-    if (m.type === "hello") {
+    lastHeard = Date.now();
+    if (m.type === "audience-status") {
+      onCameraError?.(m.cameraError);
+      report();
+    } else if (m.type === "hello") {
       hellos++;
       if (!blanked) channel.send({ type: "payload", payload: latest ?? buildCurrentAudiencePayload() });
       else channel.send({ type: "blank" });
@@ -54,10 +73,11 @@ export function createAudiencePublisher(onState?: (open: boolean) => void): Audi
   });
 
   const poll = setInterval(() => {
-    if (win && win.closed) {
+    if (win?.closed) {
       win = null;
-      onState?.(false);
+      lastHeard = 0;
     }
+    report();
   }, 500);
 
   return {
@@ -69,16 +89,18 @@ export function createAudiencePublisher(onState?: (open: boolean) => void): Audi
       // A plain popup with minimal chrome. Size 16:9 so screen-sharing it looks right.
       const features = "popup=yes,width=1280,height=760,menubar=no,toolbar=no,location=no,status=no";
       win = window.open("/audience.html", AUDIENCE_WINDOW_NAME, features);
-      if (win) onState?.(true);
+      report();
       return win;
     },
     focus: () => win?.focus(),
     close() {
-      win?.close();
+      // No handle after a reload: an empty URL returns the named window without navigating it.
+      (win ?? window.open("", AUDIENCE_WINDOW_NAME))?.close();
       win = null;
-      onState?.(false);
+      lastHeard = 0;
+      report();
     },
-    isOpen: () => !!win && !win.closed,
+    isOpen,
     blank() {
       blanked = true;
       channel.send({ type: "blank" });
