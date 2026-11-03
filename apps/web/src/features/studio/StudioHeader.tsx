@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useRecordingStore } from "@/stores/private/recordingStore";
 import { useSessionStore } from "@/stores/private/sessionStore";
 import { renameSession } from "@/db/repositories/sessions";
 import { BernouLogo } from "@/ui/logo";
@@ -19,9 +21,19 @@ export function StudioHeader() {
     else setTitle(session.title);
   };
 
+  const recording = useRecordingStore((s) => s.status !== "idle");
+
   return (
     <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border/70 px-3">
-      <Link to="/" data-testid="back-to-dashboard" className="flex items-center gap-2 rounded px-1 py-1 text-muted-foreground hover:text-foreground" aria-label="Back to dashboard">
+      <Link
+        to="/"
+        data-testid="back-to-dashboard"
+        className={cn("flex items-center gap-2 rounded px-1 py-1 text-muted-foreground hover:text-foreground", recording && "cursor-not-allowed opacity-50")}
+        aria-label="Back to dashboard"
+        aria-disabled={recording}
+        title={recording ? "Stop the recording before leaving" : undefined}
+        onClick={(e) => recording && e.preventDefault()}
+      >
         <ChevronLeft className="h-4 w-4" />
         <BernouLogo className="h-5 w-5" />
       </Link>

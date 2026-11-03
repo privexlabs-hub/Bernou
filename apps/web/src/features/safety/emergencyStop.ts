@@ -3,7 +3,7 @@
  *   1. blank the audience window (neutral frame, camera released there)
  *   2. stop every MediaStreamTrack the presenter window owns
  *   3. close the audio graph
- *   4. (stage THIRD) stop any recorder
+ *   4. stop any recorder, keeping what it recorded
  *
  * Driven by a global shortcut (Ctrl/Cmd+Shift+Escape) and a toolbar button.
  * It does not close the audience window — a sudden window disappearance in a
@@ -11,6 +11,7 @@
  * the presenter explicitly turns things back on.
  */
 import { useDevicesStore } from "@/stores/private/devicesStore";
+import { useRecordingStore } from "@/stores/private/recordingStore";
 import { useTeleprompterStore } from "@/stores/private/teleprompterStore";
 import { getAudiencePublisher } from "@/features/audienceWindow/AudienceWindowControls";
 
@@ -19,6 +20,8 @@ export interface StopReport {
   tracksStopped: number;
   requestsCancelled: number;
   audienceBlanked: boolean;
+  /** "saving" if the file wasn't finalised by the time this was reported. */
+  recording: "none" | "saved" | "saving" | "failed";
 }
 
 /** Registry of stoppers added by later stages (e.g. the recorder). */
@@ -40,6 +43,7 @@ export async function emergencyStop(): Promise<StopReport> {
   const pub = getAudiencePublisher();
   const audienceBlanked = !!pub;
   pub?.blank();
+  const wasRecording = useRecordingStore.getState().status !== "idle";
 
   // Stoppers start before devices are released so a recording can't capture
   // the moment the camera disappears. One that fails or hangs must not get in
@@ -58,7 +62,9 @@ export async function emergencyStop(): Promise<StopReport> {
   const { tracksStopped, requestsCancelled } = await released;
   await Promise.race([Promise.allSettled(stopping), new Promise((r) => setTimeout(r, STOPPER_REPORT_WAIT_MS))]);
 
-  lastReport = { at: Date.now(), tracksStopped, requestsCancelled, audienceBlanked };
+  const rec = useRecordingStore.getState();
+  const recording = !wasRecording ? "none" : rec.status !== "idle" ? "saving" : (rec.lastOutcome ?? "failed");
+  lastReport = { at: Date.now(), tracksStopped, requestsCancelled, audienceBlanked, recording };
   return lastReport;
 }
 

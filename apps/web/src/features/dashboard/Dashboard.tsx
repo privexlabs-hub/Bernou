@@ -1,14 +1,16 @@
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Film, FileText, Plus, Settings, Upload } from "lucide-react";
+import { Download, Film, FileText, Plus, Settings, Trash2, Upload } from "lucide-react";
 import { Button } from "@/ui/button";
 import { TooltipProvider } from "@/ui/tooltip";
-import { db } from "@/db/dexie";
+import { db, type RecordingRecord } from "@/db/dexie";
+import { deleteRecording } from "@/db/repositories/recordings";
 import { createSession, deleteSession, duplicateSession, renameSession } from "@/db/repositories/sessions";
 import { formatBytes, formatDuration, formatRelative } from "@/lib/format";
 import { SessionCard } from "./SessionCard";
 import { SettingsDialog } from "./SettingsDialog";
+import { downloadRecording } from "@/features/recording/recordingFile";
 import { stashPendingImport } from "@/features/session/pendingImport";
 import { BernouLogo } from "@/ui/logo";
 
@@ -166,16 +168,11 @@ export function Dashboard() {
             <section>
               <h2 className="mb-4 text-sm font-semibold">Recent recordings</h2>
               {!recordings || recordings.length === 0 ? (
-                <EmptyState icon={<Film />} text="Recordings are enabled in a later stage and will be listed here." />
+                <EmptyState icon={<Film />} text="Recordings you make in the studio appear here, ready to download." />
               ) : (
                 <ul className="panel divide-y divide-border/70" data-testid="recent-recordings">
                   {recordings.map((r) => (
-                    <li key={r.id} className="flex items-center justify-between px-4 py-3">
-                      <span className="truncate text-sm">{r.title}</span>
-                      <span className="ml-4 shrink-0 text-xs text-muted-foreground">
-                        {formatDuration(r.durationMs)} · {formatBytes(r.bytes)} · .{r.extension}
-                      </span>
-                    </li>
+                    <RecordingRow key={r.id} recording={r} />
                   ))}
                 </ul>
               )}
@@ -195,5 +192,39 @@ function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
       {icon}
       {text}
     </div>
+  );
+}
+
+function RecordingRow({ recording: r }: { recording: RecordingRecord }) {
+  const [missing, setMissing] = useState(false);
+  const inProgress = r.status === "recording";
+  return (
+    <li className="flex items-center gap-3 px-4 py-3" data-testid="recording-row" data-status={r.status ?? "complete"}>
+      <span className="min-w-0 flex-1 truncate text-sm">{r.title}</span>
+      {r.status === "interrupted" && <span className="shrink-0 text-xs text-destructive">Interrupted: may end abruptly</span>}
+      {missing && (
+        <span className="shrink-0 text-xs text-destructive" role="alert">
+          File not found
+        </span>
+      )}
+      <span className="shrink-0 text-xs text-muted-foreground">
+        {formatDuration(r.durationMs)} · {formatBytes(r.bytes)} · .{r.extension}
+      </span>
+      <Button variant="ghost" size="icon-sm" disabled={inProgress} aria-label={`Download ${r.title}`} data-testid="recording-row-download" onClick={() => void downloadRecording(r).then((ok) => setMissing(!ok))}>
+        <Download />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        disabled={inProgress}
+        aria-label={`Delete ${r.title}`}
+        data-testid="recording-row-delete"
+        onClick={() => {
+          if (confirm(`Delete the recording "${r.title}"? This can't be undone.`)) void deleteRecording(r);
+        }}
+      >
+        <Trash2 />
+      </Button>
+    </li>
   );
 }

@@ -55,6 +55,8 @@ interface DevicesState {
   startCamera: (deviceId?: string | null) => Promise<void>;
   stopCamera: () => void;
   startMic: (deviceId?: string | null) => Promise<void>;
+  /** The graph a recording can rely on even with the mic off: MediaRecorder can't take a track added later. */
+  ensureAudioGraph: () => Promise<AudioGraph>;
   stopMic: () => void;
   setMicMuted: (m: boolean) => void;
   /** Stop everything and release all hardware. */
@@ -147,10 +149,7 @@ export const useDevicesStore = create<DevicesState>((set, get) => ({
       stream = await openMicrophone({ deviceId: deviceId ?? s.selectedMicId });
       if (op !== micOp) return stopStream(stream);
       const live = stream;
-      // Re-read after the await: the graph seen before it may have been closed since.
-      const graph = get().audioGraph ?? createAudioGraph();
-      set({ audioGraph: graph });
-      await graph.resume();
+      const graph = await get().ensureAudioGraph();
       if (op !== micOp) return stopStream(live);
       graph.setSource(live);
       graph.setMuted(get().micMuted);
@@ -165,6 +164,16 @@ export const useDevicesStore = create<DevicesState>((set, get) => ({
       return;
     }
     await get().refreshDevices().catch(() => undefined);
+  },
+
+  async ensureAudioGraph() {
+    // Read here rather than earlier: one seen before an await may have been
+    // closed since. Created synchronously, so concurrent callers share it.
+    const graph = get().audioGraph ?? createAudioGraph();
+    set({ audioGraph: graph });
+    graph.setMuted(get().micMuted);
+    await graph.resume();
+    return graph;
   },
 
   stopMic() {

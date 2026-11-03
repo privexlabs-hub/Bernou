@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createAssetCache, createEngine, type Engine, type FrameSource } from "@bernou/composition-engine";
 import type { AudiencePayload } from "@bernou/audience-protocol";
+import { setPreviewHandle } from "./previewHandle";
 import { subscribeAudiencePayload } from "@/stores/audienceBridge";
 import { useDeckStore } from "@/stores/public/deckStore";
 
@@ -28,6 +29,15 @@ export function usePreviewEngine(cameraSource: FrameSource | null): PreviewEngin
     const eng = createEngine(canvas, { assets: cache });
     engineRef.current = eng;
     setEngine(eng);
+    let lastFrame = -1;
+    setPreviewHandle({
+      canvas,
+      // Skipped when the engine's own loop already drew since last time (a live camera).
+      draw: () => {
+        if (eng.frameCount() === lastFrame) eng.renderNow();
+        lastFrame = eng.frameCount();
+      },
+    });
 
     // Decode every deck slide into the cache (slides are small enough; keeps slide changes instant).
     const syncAssets = () => {
@@ -51,6 +61,7 @@ export function usePreviewEngine(cameraSource: FrameSource | null): PreviewEngin
       cache.clear();
       engineRef.current = null;
       setEngine(null);
+      setPreviewHandle(null);
     };
   }, []);
 

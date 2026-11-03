@@ -100,6 +100,7 @@ if (isBroadcastChannelSupported()) {
   window.addEventListener("pagehide", () => {
     clearInterval(retry);
     clearInterval(heartbeat);
+    channel?.send({ type: "audience-bye" });
     camera.release();
     engine.stop();
     channel?.close();

@@ -4,10 +4,11 @@
  * visible.
  */
 import { useEffect, useState } from "react";
-import { Camera, Mic, MonitorUp, OctagonX } from "lucide-react";
+import { Camera, Circle, Mic, MonitorUp, OctagonX } from "lucide-react";
 import { Button } from "@/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/tooltip";
 import { useDevicesStore } from "@/stores/private/devicesStore";
+import { useRecordingStore, type RecordingStatus } from "@/stores/private/recordingStore";
 import { emergencyStop, resumeAudience, type StopReport } from "./emergencyStop";
 import { getAudiencePublisher } from "@/features/audienceWindow/AudienceWindowControls";
 import { cn } from "@/lib/utils";
@@ -41,7 +42,10 @@ export function useLiveCaptureState(): Live {
 export function SafetyControls() {
   const live = useLiveCaptureState();
   const [stopped, setStopped] = useState<null | StopReport>(null);
-  const anyLive = live.camera || live.mic || live.audience;
+  const recordingStatus = useRecordingStore((s) => s.status);
+  const lastOutcome = useRecordingStore((s) => s.lastOutcome);
+  const recording = recordingStatus === "recording";
+  const anyLive = live.camera || live.mic || live.audience || recording;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -66,12 +70,16 @@ export function SafetyControls() {
         <Indicator on={live.audience} label="Audience window" testId="indicator-audience">
           <MonitorUp />
         </Indicator>
+        <Indicator on={recording} label="Recording" testId="indicator-recording">
+          <Circle className={recording ? "fill-rec text-rec" : undefined} />
+        </Indicator>
       </div>
       {stopped ? (
         <div className="flex items-center gap-1" role="status" data-testid="stopped-banner">
           <span className="text-[11px] text-muted-foreground">
             Stopped — {stopped.tracksStopped} capture track{stopped.tracksStopped === 1 ? "" : "s"} ended
             {stopped.requestsCancelled > 0 && `, ${stopped.requestsCancelled} pending start${stopped.requestsCancelled === 1 ? "" : "s"} cancelled`}, audience blanked.
+            {stopped.recording !== "none" && <span data-testid="stopped-recording"> {stopRecordingNote(stopped.recording, recordingStatus, lastOutcome)}</span>}
           </span>
           <Button
             size="sm"
@@ -109,6 +117,14 @@ export function SafetyControls() {
   );
 }
 
+/** The report may predate the file being finished, so a pending save reads the store. */
+function stopRecordingNote(reported: StopReport["recording"], status: RecordingStatus, outcome: "saved" | "failed" | null) {
+  const result = reported === "saving" && status === "idle" ? outcome : reported;
+  if (result === "saved") return "Recording saved.";
+  if (result === "failed") return "Recording kept, but it may be incomplete.";
+  return "Saving recording…";
+}
+
 function Indicator({ on, label, testId, children }: { on: boolean; label: string; testId: string; children: React.ReactNode }) {
   return (
     <Tooltip>
@@ -124,7 +140,7 @@ function Indicator({ on, label, testId, children }: { on: boolean; label: string
       </TooltipTrigger>
       <TooltipContent>
         {label}: {on ? "active" : "off"}
-        {!on && label !== "Audience window" && <> — turn it on in the bottom toolbar</>}
+        {!on && (label === "Camera" || label === "Microphone") && <> — turn it on in the bottom toolbar</>}
       </TooltipContent>
     </Tooltip>
   );

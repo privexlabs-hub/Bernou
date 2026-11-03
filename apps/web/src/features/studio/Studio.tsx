@@ -12,6 +12,7 @@ import { useSlideShortcuts } from "@/features/slides/useSlideShortcuts";
 import { Link } from "react-router-dom";
 import { useCameraSource } from "@/features/media/useCameraSource";
 import { useEffect } from "react";
+import { stopRecording } from "@/features/recording/recordingController";
 import { useDevicesStore } from "@/stores/private/devicesStore";
 
 export function Studio() {
@@ -25,7 +26,14 @@ export function Studio() {
   const { source: cameraSource, stalled: cameraStalled } = useCameraSource();
 
   // Release camera + microphone when leaving the studio (spec §10).
-  useEffect(() => () => void useDevicesStore.getState().releaseAll(), []);
+  // The recording stops first, so it can't capture the devices going away.
+  useEffect(
+    () => () => {
+      void stopRecording({ quiet: true });
+      void useDevicesStore.getState().releaseAll();
+    },
+    [],
+  );
 
   if (loadError) {
     return (

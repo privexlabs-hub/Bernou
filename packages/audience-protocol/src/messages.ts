@@ -48,13 +48,16 @@ export type AudienceCameraError = z.infer<typeof AudienceCameraErrorSchema>;
 /** Audience window's periodic heartbeat, so the presenter knows it's there and whether its camera works. */
 export const AudienceStatusMessageSchema = z.object({ type: z.literal("audience-status"), cameraError: AudienceCameraErrorSchema.nullable() }).strict();
 
+/** Audience window is closing, so the presenter needn't wait for its heartbeat to go stale. */
+export const AudienceByeMessageSchema = z.object({ type: z.literal("audience-bye") }).strict();
+
 export const PresenterToAudienceSchema = z.discriminatedUnion("type", [
   PayloadMessageSchema,
   AssetMessageSchema,
   BlankMessageSchema,
   ByeMessageSchema,
 ]);
-export const AudienceToPresenterSchema = z.discriminatedUnion("type", [HelloMessageSchema, AssetRequestMessageSchema, AudienceStatusMessageSchema]);
+export const AudienceToPresenterSchema = z.discriminatedUnion("type", [HelloMessageSchema, AssetRequestMessageSchema, AudienceStatusMessageSchema, AudienceByeMessageSchema]);
 
 export type HelloMessage = z.infer<typeof HelloMessageSchema>;
 export type PayloadMessage = { type: "payload"; payload: AudiencePayload };
@@ -65,4 +68,5 @@ export type ByeMessage = z.infer<typeof ByeMessageSchema>;
 
 export type PresenterToAudience = PayloadMessage | AssetMessage | BlankMessage | ByeMessage;
 export type AudienceStatusMessage = z.infer<typeof AudienceStatusMessageSchema>;
-export type AudienceToPresenter = HelloMessage | AssetRequestMessage | AudienceStatusMessage;
+export type AudienceByeMessage = z.infer<typeof AudienceByeMessageSchema>;
+export type AudienceToPresenter = HelloMessage | AssetRequestMessage | AudienceStatusMessage | AudienceByeMessage;

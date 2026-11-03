@@ -57,6 +57,11 @@ export function createAudiencePublisher(onState?: (open: boolean) => void, onCam
   const unsubscribe = subscribeAudiencePayload(publish);
 
   channel.onMessage((m) => {
+    if (m.type === "audience-bye") {
+      lastHeard = 0;
+      report();
+      return;
+    }
     lastHeard = Date.now();
     if (m.type === "audience-status") {
       onCameraError?.(m.cameraError);

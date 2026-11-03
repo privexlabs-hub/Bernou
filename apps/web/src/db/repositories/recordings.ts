@@ -1,3 +1,4 @@
+import { deleteRecordingFile } from "@bernou/media-core/recorder";
 import { db, type RecordingRecord } from "../dexie";
 
 export async function listRecordingsRecent(limit = 20): Promise<RecordingRecord[]> {
@@ -8,6 +9,12 @@ export async function addRecording(rec: RecordingRecord): Promise<void> {
   await db().recordings.add(rec);
 }
 
-export async function deleteRecording(id: string): Promise<void> {
-  await db().recordings.delete(id);
+export async function updateRecording(id: string, patch: Partial<RecordingRecord>): Promise<void> {
+  await db().recordings.update(id, patch);
+}
+
+/** The file goes first: a row with no file can be retried, a file with no row is invisible. */
+export async function deleteRecording(rec: Pick<RecordingRecord, "id" | "opfsPath">): Promise<void> {
+  await deleteRecordingFile(rec.opfsPath);
+  await db().recordings.delete(rec.id);
 }

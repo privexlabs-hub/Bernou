@@ -49,8 +49,6 @@ export function buildCurrentAudiencePayload(): AudiencePayload {
   });
 }
 
-const HIDDEN_TAB_FALLBACK_MS = 100;
-
 /**
  * Subscribe to public-state changes and receive a fresh payload, coalesced to
  * one per animation frame. Used by the preview, the audience-window
@@ -66,9 +64,10 @@ export function subscribeAudiencePayload(listener: (p: AudiencePayload) => void)
   const schedule = () => {
     if (scheduled) return;
     scheduled = true;
-    if (typeof requestAnimationFrame === "function") requestAnimationFrame(emit);
-    // Animation frames stop in a hidden tab, and slide changes must still go out.
-    setTimeout(emit, HIDDEN_TAB_FALLBACK_MS);
+    // A hidden tab has no animation frames and throttles timers to about a
+    // second, so don't wait for either: there's nothing to coalesce for anyway.
+    if (typeof requestAnimationFrame !== "function" || document.hidden) queueMicrotask(emit);
+    else requestAnimationFrame(emit);
   };
   const u1 = useDeckStore.subscribe(schedule);
   const u2 = useCompositionStore.subscribe(schedule);

@@ -106,6 +106,8 @@ export interface RecordingRecord {
   /** OPFS path where the file lives. */
   opfsPath: string;
   savedToDisk: boolean;
+  /** Missing on rows from before this existed, which were complete. */
+  status?: "recording" | "complete" | "interrupted";
 }
 
 export interface SettingRecord {

@@ -1,8 +1,11 @@
+import { useEffect } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { Dashboard } from "@/features/dashboard/Dashboard";
+import { recoverInterruptedRecordings } from "@/features/recording/recordingController";
 import { Studio } from "@/features/studio/Studio";
 
 export function App() {
+  useEffect(() => void recoverInterruptedRecordings().catch(() => undefined), []);
   return (
     <BrowserRouter>
       <Routes>

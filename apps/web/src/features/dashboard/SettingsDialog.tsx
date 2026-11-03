@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/ui/switch";
 import { getSetting, setSetting } from "@/db/repositories/settings";
 import { Button } from "@/ui/button";
+import { eraseRecordingFiles } from "@bernou/media-core/recorder";
 import { db } from "@/db/dexie";
 
 export interface AppSettings {
@@ -75,13 +76,14 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           <div className="flex items-center justify-between gap-4 border-t border-border/70 pt-4">
             <div>
               <Label>Erase all Bernou data on this device</Label>
-              <p className="mt-1 text-xs text-muted-foreground">Deletes every session, script, note and recording record.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Deletes every session, script, note and recording.</p>
             </div>
             <Button
               variant="destructive"
               size="sm"
               onClick={async () => {
                 if (!confirm("Erase ALL Bernou data from this browser? This cannot be undone.")) return;
+                await eraseRecordingFiles();
                 await db().delete();
                 location.reload();
               }}

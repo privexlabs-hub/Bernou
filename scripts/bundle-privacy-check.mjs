@@ -29,6 +29,10 @@ const FORBIDDEN = [
   "createRoot(",
   "dexie",
   "Dexie",
+  "MediaRecorder",
+  "captureStream",
+  "requestFrame",
+  "createSyncAccessHandle",
 ];
 
 // Which chunks does audience.html actually load?
