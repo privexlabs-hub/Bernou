@@ -120,6 +120,8 @@ test("font size, colours and alignment persist; follow-slides jumps to a linked 
   await page.getByRole("option", { name: "Slide 5" }).click();
   await page.getByTestId("tab-prompter").click();
   expect(await scrollTop(page)).toBe(0);
+  await page.getByTestId("prompter-settings-toggle").click();
+  await page.getByTestId("prompter-follow").click();
   await page.getByRole("button", { name: "Slide 5" }).click();
   await expect.poll(() => scrollTop(page), { timeout: 3000 }).toBeGreaterThan(1000);
   await expect(page.getByTestId("prompter-section").nth(29)).toHaveAttribute("data-current", "true");

@@ -21,18 +21,18 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/tooltip";
 import { useTeleprompterStore } from "@/stores/private/teleprompterStore";
 import { useScriptStore } from "@/stores/private/scriptStore";
 import { useDeckStore } from "@/stores/public/deckStore";
-import { progress, remainingSeconds } from "./scrollModel";
+import { MAX_SPEED, MIN_SPEED, progress, remainingSeconds } from "./scrollModel";
 import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export function Teleprompter() {
   const settings = useTeleprompterStore((s) => s.settings);
   const model = useTeleprompterStore((s) => s.model);
-  const followSlides = useTeleprompterStore((s) => s.followSlides);
   const visible = useTeleprompterStore((s) => s.visible);
-  const { patchSettings, play, pause, toggle, stop, reset, nudge, seek, setMaxPosition, tick, setFollowSlides } = useTeleprompterStore.getState();
+  const { patchSettings, play, pause, toggle, stop, reset, nudge, seek, setMaxPosition, tick } = useTeleprompterStore.getState();
   const sections = useScriptStore((s) => s.sections);
   const activeSlide = useDeckStore((s) => s.activeIndex);
+  const slideCount = useDeckStore((s) => s.slides.length);
 
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -98,15 +98,20 @@ export function Teleprompter() {
     if (found !== currentSectionId) setCurrentSectionId(found);
   }, [model.position, readingLinePx, currentSectionId, sections]);
 
-  // Follow slides: jump to the first section linked to the active slide.
+  // Follow slides: jump to the first section linked to the active slide. One
+  // way only, and a slide with no link leaves the prompter where it is.
   const lastSlideJump = useRef<number | null>(null);
   useEffect(() => {
-    if (!followSlides || lastSlideJump.current === activeSlide) return;
+    if (!settings.followSlides) {
+      lastSlideJump.current = null;
+      return;
+    }
+    if (lastSlideJump.current === activeSlide) return;
     lastSlideJump.current = activeSlide;
     const target = sections.find((s) => s.slideIndex === activeSlide);
     const el = target ? sectionEls.current.get(target.id) : null;
     if (el) seek(Math.max(0, el.offsetTop - readingLinePx()));
-  }, [activeSlide, followSlides, sections, seek, readingLinePx]);
+  }, [activeSlide, settings.followSlides, sections, seek, readingLinePx]);
 
   // Manual scrolling by wheel / touch moves the model, not just the DOM.
   const onWheel = useCallback(
@@ -210,7 +215,7 @@ export function Teleprompter() {
             <Slider min={16} max={72} step={1} value={[settings.fontSize]} onValueChange={([v]) => v !== undefined && patchSettings({ fontSize: v })} aria-label="Font size" data-testid="prompter-font-size" />
           </Row>
           <Row label="Speed" value={`${settings.speed} px/s`}>
-            <Slider min={5} max={200} step={1} value={[settings.speed]} onValueChange={([v]) => v !== undefined && patchSettings({ speed: v })} aria-label="Scroll speed" />
+            <Slider min={MIN_SPEED} max={MAX_SPEED} step={1} value={[settings.speed]} onValueChange={([v]) => v !== undefined && patchSettings({ speed: v })} aria-label="Scroll speed" data-testid="prompter-speed-slider" />
           </Row>
           <Row label="Reading line" value={`${Math.round(settings.readingLine * 100)}%`}>
             <Slider min={10} max={90} step={1} value={[Math.round(settings.readingLine * 100)]} onValueChange={([v]) => v !== undefined && patchSettings({ readingLine: v / 100 })} aria-label="Reading line position" />
@@ -238,10 +243,15 @@ export function Teleprompter() {
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <label className="flex items-center justify-between gap-2">
-              Follow slides
-              <Switch checked={followSlides} onCheckedChange={setFollowSlides} aria-label="Jump to the section linked to the active slide" />
-            </label>
+            <div className="space-y-1">
+              <label className="flex items-center justify-between gap-2">
+                Follow slides
+                <Switch checked={settings.followSlides} onCheckedChange={(c) => patchSettings({ followSlides: c })} aria-label="Jump to the section linked to the active slide" data-testid="prompter-follow" />
+              </label>
+              <p className="text-[11px] leading-snug text-muted-foreground" data-testid="prompter-follow-help">
+                {sections.some((s) => s.slideIndex !== null) ? "When you change slide, jump to the section linked to it." : "No sections are linked yet: link one in the Script tab."}
+              </p>
+            </div>
             <label className="flex items-center justify-between gap-2">
               Mirror text
               <Switch checked={settings.mirror} onCheckedChange={(c) => patchSettings({ mirror: c })} aria-label="Mirror text for a beam-splitter prompter" />
@@ -298,10 +308,15 @@ export function Teleprompter() {
                     data-current={sec.id === currentSectionId ? "true" : undefined}
                     className={cn("mb-[1.2em] transition-opacity", sec.id === currentSectionId ? "opacity-100" : "opacity-90")}
                   >
-                    {sec.title && (
+                    {(sec.title || sec.slideIndex !== null) && (
                       <h3 className="mb-[0.3em] text-[0.6em] font-semibold uppercase tracking-[0.15em] opacity-60">
                         {sec.title}
-                        {sec.slideIndex !== null && <span className="ml-2 rounded border border-current px-1 py-px text-[0.8em] opacity-70">slide {sec.slideIndex + 1}</span>}
+                        {sec.slideIndex !== null && (
+                          <span className={cn("rounded border border-current px-1 py-px text-[0.8em] opacity-70", sec.title && "ml-2")}>
+                            slide {sec.slideIndex + 1}
+                            {sec.slideIndex >= slideCount && " (not in this deck)"}
+                          </span>
+                        )}
                       </h3>
                     )}
                     <p className="whitespace-pre-wrap break-words">{sec.body}</p>

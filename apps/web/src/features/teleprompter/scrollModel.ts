@@ -6,6 +6,12 @@
  *   speed:    px per second (positive scrolls forward)
  *   state:    idle | playing | paused
  */
+/** Speed limits, in px per second. */
+export const MIN_SPEED = 1;
+export const MAX_SPEED = 400;
+const FINE_STEP_BELOW = 10;
+const COARSE_STEP = 5;
+
 export type PrompterStatus = "idle" | "playing" | "paused";
 
 export interface ScrollModel {
@@ -50,7 +56,19 @@ export function reset(m: ScrollModel): ScrollModel {
 }
 
 export function setSpeed(m: ScrollModel, speed: number): ScrollModel {
-  return { ...m, speed: clamp(speed, 5, 400) };
+  return { ...m, speed: clampSpeed(speed) };
+}
+
+export function clampSpeed(speed: number): number {
+  return clamp(speed, MIN_SPEED, MAX_SPEED);
+}
+
+/** The next speed on the buttons: by 1 where small changes matter, by 5 above that. */
+export function nextSpeed(speed: number, direction: 1 | -1): number {
+  const isFine = direction > 0 ? speed < FINE_STEP_BELOW : speed <= FINE_STEP_BELOW;
+  if (isFine) return clampSpeed(speed + direction);
+  const next = direction > 0 ? Math.floor(speed / COARSE_STEP + 1) * COARSE_STEP : Math.ceil(speed / COARSE_STEP - 1) * COARSE_STEP;
+  return clampSpeed(next);
 }
 
 export function setMaxPosition(m: ScrollModel, max: number): ScrollModel {

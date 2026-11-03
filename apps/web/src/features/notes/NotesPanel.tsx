@@ -16,7 +16,7 @@ export function NotesPanel() {
   const body = useNotesStore((s) => s.bySlide[active] ?? "");
   const setNote = useNotesStore((s) => s.setNote);
   const sections = useScriptStore((s) => s.sections);
-  const linked = useMemo(() => selectSectionsForSlide({ sections }, active), [sections, active]);
+  const linked = useMemo(() => (slideCount > 0 ? selectSectionsForSlide({ sections }, active) : []), [sections, active, slideCount]);
   const [saved, setSaved] = useState(true);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pending = useRef<{ sessionId: string; slide: number; body: string } | null>(null);

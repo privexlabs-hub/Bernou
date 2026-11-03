@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createScrollModel, nudge, pause, progress, remainingSeconds, reset, resume, seek, setMaxPosition, setSpeed, start, stop, tick, toggle } from "@/features/teleprompter/scrollModel";
+import { createScrollModel, nudge, pause, progress, remainingSeconds, reset, resume, seek, setMaxPosition, setSpeed, start, stop, tick, toggle, nextSpeed } from "@/features/teleprompter/scrollModel";
 
 const base = () => setMaxPosition(createScrollModel(100), 1000);
 
@@ -71,8 +71,10 @@ describe("teleprompter scroll model", () => {
   });
 
   it("speed is clamped and progress/remaining are derived", () => {
-    let m = setSpeed(base(), 1);
-    expect(m.speed).toBe(5);
+    expect(setSpeed(base(), 0).speed).toBe(1);
+    expect(setSpeed(base(), 1).speed).toBe(1);
+    expect(setSpeed(base(), 9999).speed).toBe(400);
+    let m = base();
     m = setSpeed(m, 100);
     m = seek(m, 250);
     expect(progress(m)).toBeCloseTo(0.25);
@@ -83,5 +85,24 @@ describe("teleprompter scroll model", () => {
     let m = seek(base(), 900);
     m = setMaxPosition(m, 500);
     expect(m.position).toBe(500);
+  });
+});
+
+describe("nextSpeed", () => {
+  it("steps by 1 up to 10, then by 5", () => {
+    expect(nextSpeed(10, -1)).toBe(9);
+    expect(nextSpeed(2, -1)).toBe(1);
+    expect(nextSpeed(9, 1)).toBe(10);
+    expect(nextSpeed(10, 1)).toBe(15);
+    expect(nextSpeed(15, -1)).toBe(10);
+    expect(nextSpeed(40, 1)).toBe(45);
+  });
+  it("stops at the limits", () => {
+    expect(nextSpeed(1, -1)).toBe(1);
+    expect(nextSpeed(400, 1)).toBe(400);
+  });
+  it("gets back onto the steps from a slider value", () => {
+    expect(nextSpeed(37, 1)).toBe(40);
+    expect(nextSpeed(37, -1)).toBe(35);
   });
 });

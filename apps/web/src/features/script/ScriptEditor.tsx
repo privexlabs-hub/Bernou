@@ -87,7 +87,7 @@ export function ScriptEditor() {
           >
             Use this speech
           </Button>
-          <Button variant="outline" onClick={() => addSection()} data-testid="script-add-first">
+          <Button variant="outline" disabled={!sessionId} onClick={() => addSection()} data-testid="script-add-first">
             <Plus /> Empty section
           </Button>
         </div>
@@ -105,6 +105,9 @@ export function ScriptEditor() {
           {dirty ? "Saving…" : "Saved"}
         </span>
       </div>
+      <p className="border-b border-border/70 px-3 py-1.5 text-[11px] leading-snug text-muted-foreground" data-testid="script-links-help">
+        Linking a section to a slide is optional. Every section shows in the prompter, in this order, linked or not.
+      </p>
       <ol className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
         {sections.map((sec, i) => (
           <li key={sec.id}>
@@ -174,7 +177,12 @@ function SectionCard({
         <span className="w-5 font-mono text-[10px] text-muted-foreground">{index + 1}</span>
         <Input value={section.title} onChange={(e) => onChange({ title: e.target.value })} placeholder="Section title (optional)" className="h-7 flex-1 text-xs" aria-label="Section title" data-testid="section-title" />
         <Select value={section.slideIndex === null ? "none" : String(section.slideIndex)} onValueChange={(v) => onChange({ slideIndex: v === "none" ? null : Number(v) })}>
-          <SelectTrigger className="h-7 w-[92px]" aria-label="Linked slide" data-testid="section-slide">
+          <SelectTrigger
+            className="h-7 w-[92px]"
+            aria-label="Linked slide"
+            title="Optional. A linked section is listed under that slide in Notes, and with Follow slides on, the prompter jumps to it when you reach that slide."
+            data-testid="section-slide"
+          >
             <Link2 className="mr-1 h-3 w-3 shrink-0 opacity-60" />
             <SelectValue />
           </SelectTrigger>
@@ -185,6 +193,7 @@ function SectionCard({
                 Slide {i + 1}
               </SelectItem>
             ))}
+            {section.slideIndex !== null && section.slideIndex >= slideCount && <SelectItem value={String(section.slideIndex)}>Slide {section.slideIndex + 1} (not in this deck)</SelectItem>}
           </SelectContent>
         </Select>
       </div>

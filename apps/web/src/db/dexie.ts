@@ -61,6 +61,8 @@ export interface TeleprompterSettings {
   /** Fraction of panel height that is visible above/below reading line (0..1). */
   readingZone: number;
   mirror: boolean;
+  /** Jump to the section linked to the active slide. Optional, and off unless chosen. */
+  followSlides: boolean;
 }
 
 export interface SlideRecord {
@@ -177,4 +179,5 @@ export const DEFAULT_TELEPROMPTER: TeleprompterSettings = {
   readingLine: 0.35,
   readingZone: 0.6,
   mirror: false,
+  followSlides: false,
 };
