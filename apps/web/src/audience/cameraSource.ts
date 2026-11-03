@@ -21,6 +21,24 @@ export interface AudienceCamera {
   lastError: string | null;
 }
 
+const CAPTURE = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
+
+/**
+ * Chromium can give one camera a different deviceId in each window, so the
+ * presenter's id may mean nothing here. With only one camera there is nothing
+ * to confuse it with. With several, fail rather than put the wrong one on air.
+ */
+async function openCamera(deviceId: string): Promise<MediaStream> {
+  try {
+    return await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId }, ...CAPTURE }, audio: false });
+  } catch (e) {
+    if ((e as Error)?.name !== "OverconstrainedError") throw e;
+    const cameras = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+    if (cameras.length !== 1) throw e;
+    return navigator.mediaDevices.getUserMedia({ video: CAPTURE, audio: false });
+  }
+}
+
 export function createAudienceCamera(onSourceChange: (source: FrameSource | null) => void): AudienceCamera {
   let stream: MediaStream | null = null;
   let video: HTMLVideoElement | null = null;
@@ -52,10 +70,7 @@ export function createAudienceCamera(onSourceChange: (source: FrameSource | null
   const acquire = async (deviceId: string, op: number) => {
     let acquired: MediaStream | null = null;
     try {
-      acquired = await navigator.mediaDevices.getUserMedia({
-        video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
-        audio: false,
-      });
+      acquired = await openCamera(deviceId);
       if (op !== generation) return stopStream(acquired);
       const attached = await attachStreamToVideo(acquired);
       if (op !== generation) {

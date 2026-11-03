@@ -26,6 +26,26 @@ async function previewPixel(page: Page, nx: number, ny: number): Promise<[number
   );
 }
 
+/** Remember the preview's current pixels for maxPreviewDelta. */
+async function capturePreview(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const c = document.querySelector<HTMLCanvasElement>('[data-testid="preview-canvas"]')!;
+    (window as unknown as { __captured: Uint8ClampedArray }).__captured = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data;
+  });
+}
+
+/** Largest per-channel difference from the pixels saved by capturePreview. */
+async function maxPreviewDelta(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const c = document.querySelector<HTMLCanvasElement>('[data-testid="preview-canvas"]')!;
+    const was = (window as unknown as { __captured: Uint8ClampedArray }).__captured;
+    const now = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data;
+    let max = 0;
+    for (let i = 0; i < now.length; i++) if (i % 4 !== 3) max = Math.max(max, Math.abs(now[i]! - was[i]!));
+    return max;
+  });
+}
+
 async function openStudioWithDeck(page: Page) {
   const id = await createSessionViaUi(page);
   await page.getByTestId("studio-import-input").setInputFiles(deck);
@@ -39,6 +59,7 @@ test.describe("camera and microphone (fake devices)", () => {
     await openStudioWithDeck(page);
 
     const before = await previewHash(page);
+    await capturePreview(page);
     await page.getByTestId("camera-toggle").click();
     await expect(page.getByTestId("camera-toggle")).toHaveAttribute("data-live", "true");
 
@@ -67,7 +88,10 @@ test.describe("camera and microphone (fake devices)", () => {
     // Turning it off removes the overlay from the composition.
     await page.getByTestId("camera-toggle").click();
     await expect(page.getByTestId("camera-toggle")).toHaveAttribute("data-live", "false");
-    await expect.poll(() => previewHash(page), { timeout: 5000 }).toBe(before);
+    // Not an exact hash: on system Chrome a few hundred pixels of the slide's
+    // text come back 1/255 off (raster noise; measured 419 of 2M, max delta 1,
+    // none near the overlay). Leftover camera pixels would differ by far more.
+    await expect.poll(() => maxPreviewDelta(page), { timeout: 5000 }).toBeLessThanOrEqual(2);
   });
 
   test("AC6 — microphone can be selected; the meter rises with the fake tone; mute works", async ({ page, browserName }) => {

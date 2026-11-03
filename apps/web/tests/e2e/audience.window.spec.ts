@@ -13,6 +13,31 @@ async function canvasHash(page: Page, selector: string): Promise<string> {
   }, selector);
 }
 
+/**
+ * Largest per-channel difference between two canvases. Two windows drawing the
+ * same frame aren't always bit-identical (slide text can rasterise 1/255 apart
+ * on system Chrome), so "same pixels" allows that much and no more.
+ */
+async function maxCanvasDelta(a: Page, aSelector: string, b: Page, bSelector: string): Promise<number> {
+  const pixels = (page: Page, selector: string) =>
+    page.evaluate((sel) => {
+      const c = document.querySelector<HTMLCanvasElement>(sel)!;
+      const data = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data;
+      let out = "";
+      for (let i = 0; i < data.length; i += 0x8000) out += String.fromCharCode(...data.subarray(i, i + 0x8000));
+      return btoa(out);
+    }, selector);
+  const [x, y] = await Promise.all([pixels(a, aSelector), pixels(b, bSelector)]);
+  const pa = Buffer.from(x, "base64");
+  const pb = Buffer.from(y, "base64");
+  if (pa.length !== pb.length) return 255;
+  let max = 0;
+  for (let i = 0; i < pa.length; i++) if (i % 4 !== 3) max = Math.max(max, Math.abs(pa[i]! - pb[i]!));
+  return max;
+}
+
+const SAME_PIXELS = 2;
+
 async function setup(page: Page) {
   await createSessionViaUi(page);
   await page.getByTestId("studio-import-input").setInputFiles(deck);
@@ -42,13 +67,15 @@ test.describe("audience-only window", () => {
 
     // same pixels as the preview for the same payload (camera off → deterministic)
     const preview = await canvasHash(page, '[data-testid="preview-canvas"]');
-    await expect.poll(() => canvasHash(audience, "#audience-canvas"), { timeout: 5000 }).toBe(preview);
+    const previewCanvas = '[data-testid="preview-canvas"]';
+    await expect.poll(() => maxCanvasDelta(page, previewCanvas, audience, "#audience-canvas"), { timeout: 5000 }).toBeLessThanOrEqual(SAME_PIXELS);
 
     // slide change propagates
     await page.getByTestId("slide-next").click();
-    const preview2 = await canvasHash(page, '[data-testid="preview-canvas"]');
-    expect(preview2).not.toBe(preview);
-    await expect.poll(() => canvasHash(audience, "#audience-canvas"), { timeout: 5000 }).toBe(preview2);
+    // The bridge publishes on the next frame, so the new slide isn't drawn yet at click time.
+    await expect.poll(() => canvasHash(page, previewCanvas), { timeout: 5000 }).not.toBe(preview);
+    await expect.poll(() => maxCanvasDelta(page, previewCanvas, audience, "#audience-canvas"), { timeout: 5000 }).toBeLessThanOrEqual(SAME_PIXELS);
+    const preview2 = await canvasHash(audience, "#audience-canvas");
 
     // camera on → audience re-acquires the same (fake) camera and shows it
     await page.getByTestId("camera-toggle").click();
@@ -123,9 +150,16 @@ test.describe("audience-only window", () => {
     await expect(page.getByTestId("overlay-handle")).toBeVisible();
     await expect.poll(() => canvasHash(audience, "#audience-canvas"), { timeout: 5000 }).not.toBe(h2);
     await page.getByTestId("tab-camera").click();
+    // Live camera frames change the hash on their own, so check where the overlay went instead.
+    const saturationAtDefaultOverlay = () =>
+      audience.evaluate(() => {
+        const c = document.querySelector<HTMLCanvasElement>("#audience-canvas")!;
+        const d = c.getContext("2d")!.getImageData(Math.round(0.87 * c.width), Math.round(0.82 * c.height), 1, 1).data;
+        return Math.max(d[0]!, d[1]!, d[2]!) - Math.min(d[0]!, d[1]!, d[2]!);
+      });
+    await expect.poll(saturationAtDefaultOverlay, { timeout: 8000 }).toBeGreaterThan(60);
     await page.getByTestId("snap-tl").click();
-    const h3 = await canvasHash(audience, "#audience-canvas");
-    await expect.poll(() => canvasHash(audience, "#audience-canvas"), { timeout: 5000 }).not.toBe(h3);
+    await expect.poll(saturationAtDefaultOverlay, { timeout: 5000 }).toBeLessThan(20);
   });
 
   /** AC12 — recording controls (none exist yet) and all presenter controls are absent; verified by DOM audit above. */
@@ -135,10 +169,12 @@ test.describe("audience-only window", () => {
     test.skip(browserName !== "chromium");
     await setup(page);
     const audience = await openAudience(page);
+    const before = await canvasHash(page, '[data-testid="preview-canvas"]');
     await page.getByTestId("slide-next").click();
     await page.getByTestId("slide-next").click();
-    const expected = await canvasHash(page, '[data-testid="preview-canvas"]');
+    await expect(page.getByTestId("slide-counter")).toHaveText("3 / 20");
+    await expect.poll(() => canvasHash(page, '[data-testid="preview-canvas"]'), { timeout: 5000 }).not.toBe(before);
     await audience.reload();
-    await expect.poll(() => canvasHash(audience, "#audience-canvas"), { timeout: 8000 }).toBe(expected);
+    await expect.poll(() => maxCanvasDelta(page, '[data-testid="preview-canvas"]', audience, "#audience-canvas"), { timeout: 8000 }).toBeLessThanOrEqual(SAME_PIXELS);
   });
 });
