@@ -15,6 +15,10 @@ export interface PreviewEngineHandle {
   engine: Engine | null;
 }
 
+function sameExceptInk(a: AudiencePayload, b: AudiencePayload) {
+  return a.layout === b.layout && a.slide?.assetId === b.slide?.assetId && a.output.width === b.output.width && a.output.height === b.output.height && JSON.stringify(a.camera) === JSON.stringify(b.camera);
+}
+
 /** How far either side of the current slide to keep ready, so changing slide is instant. */
 const NEARBY_SLIDES = 3;
 
@@ -66,7 +70,8 @@ export function usePreviewEngine(cameraSource: FrameSource | null): PreviewEngin
     const unsubPayload = subscribeAudiencePayload((p) => {
       eng.resize(p.output.width, p.output.height);
       eng.setPayload(p);
-      setPayload(p);
+      // The UI doesn't use ink, and ink changes many times a second while drawing.
+      setPayload((prev) => (prev && sameExceptInk(prev, p) ? prev : p));
     });
 
     eng.start();

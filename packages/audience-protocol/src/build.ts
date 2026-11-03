@@ -8,6 +8,9 @@
  * out-of-bounds overlay.
  */
 import {
+  INK_COORD_MAX,
+  MAX_INK_POINTS,
+  MAX_INK_STROKES,
   OUTPUT_PROFILES,
   PROTOCOL_VERSION,
   MAX_BRANDING_TITLE_LENGTH,
@@ -18,6 +21,8 @@ import {
   type OutputProfileName,
   type SlideRef,
   type CameraSpec,
+  type InkSpec,
+  type InkStroke,
 } from "./payload";
 import { validatePayload } from "./schema";
 
@@ -43,6 +48,7 @@ export interface BuildPayloadInput {
     opacity: number;
   };
   branding: { title: string | null; logoAssetId: string | null; position: BrandingPosition; color: string } | null;
+  ink: { pointer: { x: number; y: number } | null; strokes: readonly InkStroke[] } | null;
 }
 
 const clamp = (v: number, lo: number, hi: number) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo);
@@ -81,6 +87,33 @@ export function clampCamera(c: BuildPayloadInput["camera"], outputW: number, out
   };
 }
 
+const inkCoord = (v: number) => Math.round(clamp(v, 0, INK_COORD_MAX));
+
+/**
+ * Cuts ink down to what's allowed rather than letting validation throw: a throw
+ * here would stop all output, and too many marks must never do that. None at all
+ * when no slide is showing, so ink can't float over a camera or blank frame.
+ */
+export function sanitizeInk(ink: BuildPayloadInput["ink"], layout: AudienceLayout, slide: SlideRef | null): InkSpec | null {
+  if (!ink || !slide || layout === "blank" || layout === "camera-full") return null;
+  const strokes: InkStroke[] = [];
+  let room = MAX_INK_POINTS;
+  for (const s of ink.strokes.slice(0, MAX_INK_STROKES)) {
+    const points: number[] = [];
+    for (let i = 0; i + 1 < s.points.length && points.length / 2 < room; i += 2) {
+      const x = s.points[i]!;
+      const y = s.points[i + 1]!;
+      if (Number.isFinite(x) && Number.isFinite(y)) points.push(inkCoord(x), inkCoord(y));
+    }
+    if (points.length === 0) continue;
+    strokes.push({ tool: s.tool, color: s.color, points });
+    room -= points.length / 2;
+  }
+  const p = ink.pointer;
+  const pointer = p && Number.isFinite(p.x) && Number.isFinite(p.y) ? { x: inkCoord(p.x), y: inkCoord(p.y) } : null;
+  return pointer || strokes.length > 0 ? { pointer, strokes } : null;
+}
+
 export function buildAudiencePayload(input: BuildPayloadInput): AudiencePayload {
   const { width, height } = OUTPUT_PROFILES[input.profile];
   const payload: AudiencePayload = {
@@ -98,6 +131,7 @@ export function buildAudiencePayload(input: BuildPayloadInput): AudiencePayload 
           color: input.branding.color,
         }
       : null,
+    ink: sanitizeInk(input.ink, input.layout, input.slide),
   };
   // Validate our own output: if this throws, it's a bug in this file, and
   // nothing is sent.
@@ -127,5 +161,6 @@ export function blankPayload(seq: number, profile: OutputProfileName = "1080p"):
       opacity: 1,
     },
     branding: null,
+    ink: null,
   });
 }

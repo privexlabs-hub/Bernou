@@ -112,7 +112,8 @@ export function createAudiencePublisher(onState?: (open: boolean) => void, onCam
     },
     resume() {
       blanked = false;
-      channel.send({ type: "payload", payload: latest ?? buildCurrentAudiencePayload() });
+      // Fresh rather than the last one sent: that could still hold the pointer.
+      channel.send({ type: "payload", payload: buildCurrentAudiencePayload() });
     },
     hellos: () => hellos,
     dispose() {

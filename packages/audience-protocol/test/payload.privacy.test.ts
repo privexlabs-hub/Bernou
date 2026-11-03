@@ -19,6 +19,7 @@ import {
   SLIDE_KEYS,
   safeValidatePayload,
 } from "../src/index";
+import { INK_COLORS, INK_COORD_MAX, INK_KEYS, INK_STROKE_KEYS, MAX_INK_POINTS, MAX_INK_STROKES } from "../src/payload";
 import { buildAudiencePayload, clampCamera, overlayHeightNormalised, type BuildPayloadInput } from "../src/build";
 
 const CANARIES = ["CANARY-SCRIPT-9f2c", "CANARY-NOTES-4a71", "CANARY-TELEPROMPTER-b3e0", "CANARY-RECORDING-77d1", "CANARY-FILENAME-c0de"];
@@ -58,6 +59,21 @@ const inputArb: fc.Arbitrary<BuildPayloadInput> = fc.record({
       logoAssetId: fc.option(slugArb, { nil: null }),
       position: fc.constantFrom("tl", "tr", "bl", "br") as fc.Arbitrary<"tl" | "tr" | "bl" | "br">,
       color: colorArb,
+    }),
+    { nil: null },
+  ),
+  // Deliberately includes junk numbers and over-long strokes: none may break a payload.
+  ink: fc.option(
+    fc.record({
+      pointer: fc.option(fc.record({ x: fc.double(), y: fc.double() }), { nil: null }),
+      strokes: fc.array(
+        fc.record({
+          tool: fc.constantFrom("pen", "highlighter") as fc.Arbitrary<"pen" | "highlighter">,
+          color: fc.constantFrom(...INK_COLORS),
+          points: fc.array(fc.double(), { maxLength: 40 }),
+        }),
+        { maxLength: 6 },
+      ),
     }),
     { nil: null },
   ),
@@ -126,6 +142,7 @@ describe("P1: AudiencePayload whitelist", () => {
       slide: null,
       camera: { enabled: false, deviceId: null, shape: "circle", x: 0, y: 0, size: 0.2, aspect: 1, cornerRadius: 0, borderWidth: 0, borderColor: "#fff", shadow: false, mirror: false, opacity: 1 },
       branding: { title: "x".repeat(1000), logoAssetId: null, position: "tl", color: "#fff" },
+      ink: null,
     });
     expect(p.branding?.title?.length).toBe(120);
   });
@@ -140,6 +157,7 @@ describe("P1: strict schema rejects smuggled fields", () => {
     slide: { assetId: "s1", width: 1920, height: 1080 },
     camera: { enabled: true, deviceId: "abc", shape: "circle", x: 0.7, y: 0.6, size: 0.2, aspect: 1, cornerRadius: 0, borderWidth: 2, borderColor: "#fff", shadow: true, mirror: false, opacity: 1 },
     branding: null,
+    ink: null,
   });
 
   it("rejects an unknown top-level key", () => {
@@ -172,5 +190,55 @@ describe("clampCamera", () => {
   it("shrinks a circle that would be taller than the output", () => {
     const c = clampCamera({ enabled: true, deviceId: null, shape: "circle", x: 0, y: 0, size: 1, aspect: 1, cornerRadius: 0, borderWidth: 0, borderColor: "#fff", shadow: false, mirror: false, opacity: 1 }, 1920, 1080);
     expect(c.size).toBeCloseTo(1080 / 1920);
+  });
+});
+
+describe("P1: ink carries only numbers and a fixed palette, within limits", () => {
+  const camera = { enabled: false, deviceId: null, shape: "circle", x: 0.7, y: 0.6, size: 0.2, aspect: 1, cornerRadius: 0, borderWidth: 2, borderColor: "#fff", shadow: true, mirror: false, opacity: 1 } as const;
+  const input = (ink: BuildPayloadInput["ink"], over: Partial<BuildPayloadInput> = {}): BuildPayloadInput => ({ seq: 1, profile: "1080p", background: "#000", layout: "slide-full", slide: { assetId: "s1", width: 1920, height: 1080 }, camera, branding: null, ink, ...over });
+  const stroke = (points: number[]) => ({ tool: "pen" as const, color: INK_COLORS[0], points });
+  const withInk = (ink: unknown) => safeValidatePayload({ ...buildAudiencePayload(input(null)), ink });
+
+  it("has exactly the allowed keys", () => {
+    const p = buildAudiencePayload(input({ pointer: { x: 1, y: 2 }, strokes: [stroke([1, 2, 3, 4])] }));
+    expect(Object.keys(p.ink!)).toEqual([...INK_KEYS]);
+    expect(Object.keys(p.ink!.strokes[0]!)).toEqual([...INK_STROKE_KEYS]);
+  });
+  it("rejects smuggled fields and text", () => {
+    const good = { tool: "pen", color: INK_COLORS[0], points: [1, 2] };
+    expect(withInk({ pointer: null, strokes: [good] }).ok).toBe(true);
+    expect(withInk({ pointer: null, strokes: [good], note: "x" }).ok).toBe(false);
+    expect(withInk({ pointer: null, strokes: [{ ...good, label: "x" }] }).ok).toBe(false);
+    expect(withInk({ pointer: { x: 1, y: 2, label: "x" }, strokes: [] }).ok).toBe(false);
+    expect(withInk({ pointer: null, strokes: [{ ...good, color: "secret words" }] }).ok).toBe(false);
+    expect(withInk({ pointer: null, strokes: [{ ...good, points: ["a", "b"] }] }).ok).toBe(false);
+  });
+  it("the schema itself enforces the limits, for anything that didn't come through the builder", () => {
+    const pen = (points: number[]) => ({ tool: "pen", color: INK_COLORS[0], points });
+    expect(withInk({ pointer: null, strokes: [pen([1, 2, 3])] }).ok).toBe(false); // odd count
+    expect(withInk({ pointer: null, strokes: [pen([1.5, 2])] }).ok).toBe(false); // not an integer
+    expect(withInk({ pointer: null, strokes: [pen([INK_COORD_MAX + 1, 2])] }).ok).toBe(false);
+    expect(withInk({ pointer: null, strokes: Array(MAX_INK_STROKES + 1).fill(pen([1, 2])) }).ok).toBe(false);
+    const half = Array(MAX_INK_POINTS * 2 - 2).fill(1);
+    expect(withInk({ pointer: null, strokes: [pen(half), pen([1, 2])] }).ok).toBe(true);
+    expect(withInk({ pointer: null, strokes: [pen(half), pen([1, 2, 3, 4, 5, 6])] }).ok).toBe(false);
+  });
+  it("the builder trims too much ink rather than throwing, since a throw would stop all output", () => {
+    const tooLong = Array(MAX_INK_POINTS * 3).fill(100);
+    const many = Array(MAX_INK_STROKES + 50).fill(stroke([1, 2]));
+    expect(buildAudiencePayload(input({ pointer: null, strokes: [stroke(tooLong)] })).ink!.strokes[0]!.points.length).toBe(MAX_INK_POINTS * 2);
+    expect(buildAudiencePayload(input({ pointer: null, strokes: many })).ink!.strokes.length).toBe(MAX_INK_STROKES);
+  });
+  it("cleans bad numbers", () => {
+    const p = buildAudiencePayload(input({ pointer: { x: NaN, y: 2 }, strokes: [stroke([NaN, 2, -5, 1e9, 3.4, 5.6, Infinity, 1])] }));
+    expect(p.ink?.pointer).toBeNull();
+    expect(p.ink?.strokes[0]!.points).toEqual([0, INK_COORD_MAX, 3, 6]);
+  });
+  it("sends none when no slide is showing", () => {
+    const ink = { pointer: { x: 1, y: 2 }, strokes: [stroke([1, 2])] };
+    expect(buildAudiencePayload(input(ink, { layout: "camera-full" })).ink).toBeNull();
+    expect(buildAudiencePayload(input(ink, { layout: "blank" })).ink).toBeNull();
+    expect(buildAudiencePayload(input(ink, { slide: null })).ink).toBeNull();
+    expect(buildAudiencePayload(input({ pointer: null, strokes: [] })).ink).toBeNull();
   });
 });

@@ -14,6 +14,7 @@
 import type { AudiencePayload } from "@bernou/audience-protocol";
 import { drawBrandingLayer } from "./layers/brandingLayer";
 import { drawCameraLayer } from "./layers/cameraLayer";
+import { drawMarksLayer, drawPointerLayer } from "./layers/inkLayer";
 import { drawSlideLayer } from "./layers/slideLayer";
 import { createScheduler, type Scheduler } from "./scheduler";
 import type { AssetResolver, Ctx2D, DrawableCanvas, EngineInputs, EngineOptions, FrameSource } from "./types";
@@ -38,8 +39,10 @@ export function renderFrame(ctx: Ctx2D, inputs: EngineInputs): void {
   if (sx !== 1 || sy !== 1) ctx.setTransform(sx, 0, 0, sy, 0, 0);
 
   drawSlideLayer(ctx, p, inputs.assets);
+  drawMarksLayer(ctx, p, inputs.assets);
   drawCameraLayer(ctx, p, inputs.camera);
   drawBrandingLayer(ctx, p, inputs.assets);
+  drawPointerLayer(ctx, p);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
 

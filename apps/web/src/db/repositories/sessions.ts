@@ -38,9 +38,10 @@ export async function renameSession(id: string, title: string): Promise<void> {
 /** Deletes the session and everything that belongs to it. */
 export async function deleteSession(id: string): Promise<void> {
   const d = db();
-  await d.transaction("rw", d.sessions, d.slides, d.scripts, d.notes, async () => {
+  await d.transaction("rw", [d.sessions, d.slides, d.scripts, d.notes, d.ink], async () => {
     await d.slides.where("sessionId").equals(id).delete();
     await d.notes.where("sessionId").equals(id).delete();
+    await d.ink.where("sessionId").equals(id).delete();
     await d.scripts.delete(id);
     await d.sessions.delete(id);
   });
@@ -52,7 +53,7 @@ export async function duplicateSession(id: string): Promise<SessionRecord | unde
   if (!src) return undefined;
   const now = Date.now();
   const copy: SessionRecord = { ...structuredClone(src), id: newId(), title: `${src.title} (copy)`, createdAt: now, updatedAt: now };
-  await d.transaction("rw", d.sessions, d.slides, d.scripts, d.notes, async () => {
+  await d.transaction("rw", [d.sessions, d.slides, d.scripts, d.notes, d.ink], async () => {
     await d.sessions.add(copy);
     const slides = await d.slides.where("sessionId").equals(id).toArray();
     await d.slides.bulkAdd(slides.map((s) => ({ ...s, id: `${copy.id}:${s.index}`, sessionId: copy.id })));
@@ -60,6 +61,8 @@ export async function duplicateSession(id: string): Promise<SessionRecord | unde
     if (script) await d.scripts.add({ ...script, sessionId: copy.id });
     const notes = await d.notes.where("sessionId").equals(id).toArray();
     await d.notes.bulkAdd(notes.map((n) => ({ ...n, id: `${copy.id}:${n.slideIndex}`, sessionId: copy.id })));
+    const ink = await d.ink.where("sessionId").equals(id).toArray();
+    await d.ink.bulkAdd(ink.map((r) => ({ ...r, id: `${copy.id}:${r.slideIndex}`, sessionId: copy.id })));
   });
   return copy;
 }

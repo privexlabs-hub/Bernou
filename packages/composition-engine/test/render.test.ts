@@ -23,6 +23,7 @@ const UPDATE = process.env.UPDATE_GOLDEN === "1";
 
 function payload(over: Partial<AudiencePayload> = {}, cam: Partial<AudiencePayload["camera"]> = {}): AudiencePayload {
   return {
+    ink: null,
     v: 1,
     seq: 1,
     output: { profile: "720p", width: 1280, height: 720, background: "#0b0d12" },
@@ -181,4 +182,42 @@ describe("golden images (deterministic layers)", () => {
   it("slide with rounded rect camera, mirrored", () => expectGolden("slide-rect-mirror-720p", render(payload({}, { shape: "rect", aspect: 16 / 9, mirror: true, shadow: false })), 60));
   it("camera-full", () => expectGolden("camera-full-720p", render(payload({ layout: "camera-full" }))));
   it("blank", () => expectGolden("blank-720p", render(payload({ layout: "blank" }))));
+
+  describe("ink", () => {
+    const stroke = (tool: "pen" | "highlighter", color: "#ef4444" | "#f59e0b", points: number[]) => ({ tool, color, points });
+    const ACROSS_CAMERA = [10000, 45000, 62000, 45000];
+
+    it("marks sit on the slide, under the camera", () => {
+      const p = payload({ ink: { pointer: null, strokes: [stroke("pen", "#ef4444", [6000, 12000, 30000, 30000, 12000, 50000]), stroke("pen", "#ef4444", ACROSS_CAMERA)] } });
+      expectGolden("ink-marks-under-camera-720p", render(p));
+    });
+    it("a highlighter doesn't darken where it overlaps itself", () => {
+      const p = payload({ ink: { pointer: null, strokes: [stroke("highlighter", "#f59e0b", [6000, 20000, 40000, 20000, 6000, 20000, 40000, 20000])] } }, { enabled: false });
+      expectGolden("ink-highlighter-720p", render(p));
+    });
+    it("the pointer is on top of everything, including the camera", () => {
+      const p = payload({ ink: { pointer: { x: 55000, y: 45000 }, strokes: [] } });
+      expectGolden("ink-pointer-over-camera-720p", render(p));
+    });
+    it("a single dab shows as a dot", () => {
+      const without = sha(render(payload({}, { enabled: false })));
+      expect(sha(render(payload({ ink: { pointer: null, strokes: [stroke("pen", "#ef4444", [20000, 20000])] } }, { enabled: false })))).not.toBe(without);
+    });
+    it("none, or an empty set, draws exactly what no ink draws", () => {
+      const without = sha(render(payload({ ink: null })));
+      expect(sha(render(payload({ ink: { pointer: null, strokes: [] } })))).toBe(without);
+    });
+    it("marks stay on the slide when it's letterboxed", () => {
+      // A portrait slide leaves bars at the sides, and the corner of the ink is at the slide's corner.
+      const tall = { slide: { assetId: "s1", width: 540, height: 960 } };
+      const p = payload({ ...tall, ink: { pointer: null, strokes: [stroke("pen", "#ef4444", [0, 0, 65535, 65535])] } }, { enabled: false });
+      const bare = payload(tall, { enabled: false });
+      const outsideDiffers = (a: ReturnType<typeof render>, b: ReturnType<typeof render>) => {
+        const ctxA = a.getContext("2d").getImageData(0, 0, 200, 720).data;
+        const ctxB = b.getContext("2d").getImageData(0, 0, 200, 720).data;
+        return ctxA.some((v, i) => v !== ctxB[i]);
+      };
+      expect(outsideDiffers(render(p), render(bare))).toBe(false);
+    });
+  });
 });

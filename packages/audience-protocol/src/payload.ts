@@ -14,6 +14,9 @@
  *   - navigation state beyond the current rasterised slide
  *   - file names, session names, deck titles, slide text layers
  *
+ * Ink is numbers and a fixed palette, never text: strokes and a pointer position,
+ * for the active slide only, with hard limits on how much can be sent.
+ *
  * The ONLY free text allowed is `branding.title`, which the presenter sets in
  * a dedicated "visible to audience" field and which is length-capped.
  *
@@ -39,6 +42,16 @@ export type BrandingPosition = "tl" | "tr" | "bl" | "br";
 
 /** Maximum length of the audience-visible title. */
 export const MAX_BRANDING_TITLE_LENGTH = 120;
+
+/** The only colours ink can have: a fixed palette, so a colour can't carry text. */
+export const INK_COLORS = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#ffffff", "#111827"] as const;
+export type InkColor = (typeof INK_COLORS)[number];
+
+/** Ink coordinates are integers from 0 to this, across the slide (not the output). */
+export const INK_COORD_MAX = 65535;
+/** Limits per slide. A payload holds a whole slide's ink and is sent often, so these bound its cost. */
+export const MAX_INK_STROKES = 200;
+export const MAX_INK_POINTS = 5000;
 
 export interface OutputSpec {
   readonly profile: OutputProfileName;
@@ -82,6 +95,19 @@ export interface BrandingSpec {
   readonly color: string;
 }
 
+export interface InkStroke {
+  readonly tool: "pen" | "highlighter";
+  readonly color: InkColor;
+  /** Flat: x, y, x, y… */
+  readonly points: readonly number[];
+}
+
+/** Marks and the pointer on the active slide. */
+export interface InkSpec {
+  readonly pointer: { readonly x: number; readonly y: number } | null;
+  readonly strokes: readonly InkStroke[];
+}
+
 export interface AudiencePayload {
   readonly v: typeof PROTOCOL_VERSION;
   /** Monotonic sequence number; receivers apply last-writer-wins. */
@@ -91,13 +117,14 @@ export interface AudiencePayload {
   readonly slide: SlideRef | null;
   readonly camera: CameraSpec;
   readonly branding: BrandingSpec | null;
+  readonly ink: InkSpec | null;
 }
 
 /**
  * Exhaustive, ordered list of the top-level keys a payload may contain.
  * Privacy test P1 asserts Object.keys(payload) deep-equals this list.
  */
-export const AUDIENCE_PAYLOAD_KEYS = ["v", "seq", "output", "layout", "slide", "camera", "branding"] as const;
+export const AUDIENCE_PAYLOAD_KEYS = ["v", "seq", "output", "layout", "slide", "camera", "branding", "ink"] as const;
 
 export const CAMERA_KEYS = [
   "enabled",
@@ -117,3 +144,5 @@ export const CAMERA_KEYS = [
 export const OUTPUT_KEYS = ["profile", "width", "height", "background"] as const;
 export const SLIDE_KEYS = ["assetId", "width", "height"] as const;
 export const BRANDING_KEYS = ["title", "logoAssetId", "position", "color"] as const;
+export const INK_KEYS = ["pointer", "strokes"] as const;
+export const INK_STROKE_KEYS = ["tool", "color", "points"] as const;

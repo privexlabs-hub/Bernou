@@ -9,6 +9,7 @@ import { getSession, updateSession } from "@/db/repositories/sessions";
 import { getSlides, replaceSlides } from "@/db/repositories/slides";
 import { IDLE_IMPORT, useSessionStore } from "@/stores/private/sessionStore";
 import { useDeckStore } from "@/stores/public/deckStore";
+import { useInkStore } from "@/stores/public/inkStore";
 import { toDeckSlides } from "./deckSlides";
 import { PPTX_REFUSED_CODE, runImport } from "./runImport";
 
@@ -35,6 +36,7 @@ export async function importDeck(sessionId: string, files: File[], afterSaved?: 
     await updateSession(sessionId, { sourceFileName: source, sourceKind: result.kind });
     await afterSaved?.();
     if (isOpen(sessionId)) {
+      useInkStore.getState().load({}); // replaceSlides cleared them
       useDeckStore.getState().setSlides(toDeckSlides(await getSlides(sessionId), revision));
       const updated = await getSession(sessionId);
       if (updated) setSession(updated);

@@ -12,6 +12,7 @@ import { useSlideShortcuts } from "@/features/slides/useSlideShortcuts";
 import { Link } from "react-router-dom";
 import { useCameraSource } from "@/features/media/useCameraSource";
 import { useEffect } from "react";
+import { useInkShortcuts } from "@/features/ink/InkToolbar";
 import { stopRecording } from "@/features/recording/recordingController";
 import { useDevicesStore } from "@/stores/private/devicesStore";
 
@@ -20,6 +21,7 @@ export function Studio() {
   useSessionLoader(sessionId);
   useSessionPersistence(sessionId);
   useSlideShortcuts();
+  useInkShortcuts();
 
   const loading = useSessionStore((s) => s.loading);
   const loadError = useSessionStore((s) => s.loadError);

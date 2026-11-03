@@ -11,6 +11,7 @@ import { buildAudiencePayload } from "@bernou/audience-protocol/build";
 import type { AudiencePayload } from "@bernou/audience-protocol";
 import { useDeckStore, selectActiveSlide } from "./public/deckStore";
 import { useCompositionStore } from "./public/compositionStore";
+import { useInkStore } from "./public/inkStore";
 
 // From the clock, not 0: an audience window outlives a presenter reload and
 // ignores anything not newer than what it last saw.
@@ -20,6 +21,7 @@ let seq = Date.now();
 export function buildCurrentAudiencePayload(): AudiencePayload {
   const deck = useDeckStore.getState();
   const comp = useCompositionStore.getState();
+  const ink = useInkStore.getState();
   const slide = selectActiveSlide(deck);
   seq += 1;
   return buildAudiencePayload({
@@ -46,8 +48,11 @@ export function buildCurrentAudiencePayload(): AudiencePayload {
     branding: comp.branding.enabled && comp.branding.title.trim()
       ? { title: comp.branding.title.trim(), logoAssetId: null, position: comp.branding.position, color: comp.branding.color }
       : null,
+    ink: { pointer: ink.pointer, strokes: ink.bySlide[deck.activeIndex] ?? [] },
   });
 }
+
+const INK_MIN_INTERVAL_MS = 33;
 
 /**
  * Subscribe to public-state changes and receive a fresh payload, coalesced to
@@ -56,9 +61,12 @@ export function buildCurrentAudiencePayload(): AudiencePayload {
  */
 export function subscribeAudiencePayload(listener: (p: AudiencePayload) => void): () => void {
   let scheduled = false;
+  let lastEmit = 0;
+  let inkTimer: ReturnType<typeof setTimeout> | null = null;
   const emit = () => {
     if (!scheduled) return;
     scheduled = false;
+    lastEmit = performance.now();
     listener(buildCurrentAudiencePayload());
   };
   const schedule = () => {
@@ -71,9 +79,21 @@ export function subscribeAudiencePayload(listener: (p: AudiencePayload) => void)
   };
   const u1 = useDeckStore.subscribe(schedule);
   const u2 = useCompositionStore.subscribe(schedule);
+  // Every payload carries the slide's whole ink, and the mouse moves far more
+  // often than the output needs updating.
+  const u3 = useInkStore.subscribe(() => {
+    const wait = INK_MIN_INTERVAL_MS - (performance.now() - lastEmit);
+    if (wait <= 0) return schedule();
+    inkTimer ??= setTimeout(() => {
+      inkTimer = null;
+      schedule();
+    }, wait);
+  });
   listener(buildCurrentAudiencePayload());
   return () => {
     u1();
     u2();
+    u3();
+    if (inkTimer) clearTimeout(inkTimer);
   };
 }

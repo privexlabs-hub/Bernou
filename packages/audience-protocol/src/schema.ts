@@ -4,7 +4,7 @@
  * ride along in an allowed field.
  */
 import { z } from "zod";
-import { MAX_BRANDING_TITLE_LENGTH, OUTPUT_PROFILES, PROTOCOL_VERSION, type AudiencePayload } from "./payload";
+import { INK_COLORS, INK_COORD_MAX, MAX_BRANDING_TITLE_LENGTH, MAX_INK_POINTS, MAX_INK_STROKES, OUTPUT_PROFILES, PROTOCOL_VERSION, type AudiencePayload } from "./payload";
 
 const cssColor = z.string().min(1).max(64).regex(/^[#a-zA-Z0-9(),.% -]+$/, "unsafe colour string");
 const assetId = z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/, "asset ids are opaque slugs");
@@ -57,6 +57,29 @@ export const BrandingSpecSchema = z
   })
   .strict();
 
+const inkCoord = z.number().int().min(0).max(INK_COORD_MAX);
+
+export const InkStrokeSchema = z
+  .object({
+    tool: z.enum(["pen", "highlighter"]),
+    color: z.enum(INK_COLORS),
+    points: z
+      .array(inkCoord)
+      .min(2)
+      .max(MAX_INK_POINTS * 2)
+      .refine((p) => p.length % 2 === 0, { message: "points come in x, y pairs" })
+      .readonly(),
+  })
+  .strict();
+
+export const InkSpecSchema = z
+  .object({
+    pointer: z.object({ x: inkCoord, y: inkCoord }).strict().nullable(),
+    strokes: z.array(InkStrokeSchema).max(MAX_INK_STROKES).readonly(),
+  })
+  .strict()
+  .refine((ink) => ink.strokes.reduce((n, s) => n + s.points.length / 2, 0) <= MAX_INK_POINTS, { message: `at most ${MAX_INK_POINTS} ink points per slide` });
+
 export const AudiencePayloadSchema = z
   .object({
     v: z.literal(PROTOCOL_VERSION),
@@ -66,6 +89,7 @@ export const AudiencePayloadSchema = z
     slide: SlideRefSchema.nullable(),
     camera: CameraSpecSchema,
     branding: BrandingSpecSchema.nullable(),
+    ink: InkSpecSchema.nullable(),
   })
   .strict();
 

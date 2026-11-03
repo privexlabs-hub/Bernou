@@ -11,11 +11,15 @@ import type { FrameSource } from "@bernou/composition-engine";
 import { usePreviewEngine } from "./usePreviewEngine";
 import { OverlayHandles } from "./OverlayHandles";
 import { CameraHint } from "./CameraHint";
+import { InkLayer } from "@/features/ink/InkLayer";
+import { InkToolbar } from "@/features/ink/InkToolbar";
+import { useInkToolStore } from "@/stores/private/inkToolStore";
 import { Eye } from "lucide-react";
 import type { DisplayRect } from "./displayRect";
 
 export function PreviewPanel({ cameraSource, cameraStalled }: { cameraSource: FrameSource | null; cameraStalled: boolean }) {
   const { canvasRef, payload } = usePreviewEngine(cameraSource);
+  const inkTool = useInkToolStore((s) => s.tool);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [display, setDisplay] = useState<DisplayRect>({ left: 0, top: 0, width: 0, height: 0 });
 
@@ -45,7 +49,9 @@ export function PreviewPanel({ cameraSource, cameraStalled }: { cameraSource: Fr
     <section className="panel flex h-full flex-col overflow-hidden" aria-label="Audience preview">
       <div className="flex items-center justify-between px-3 py-2">
         <span className="panel-title">Audience preview</span>
-        <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground" title="This is the exact composition the audience receives">
+        <span className="flex-1" />
+        <InkToolbar />
+        <span className="ml-3 flex items-center gap-1.5 text-[11px] text-muted-foreground" title="This is the exact composition the audience receives">
           <Eye className="h-3 w-3" />
           {payload ? `${payload.output.width}×${payload.output.height}` : ""}
         </span>
@@ -57,7 +63,8 @@ export function PreviewPanel({ cameraSource, cameraStalled }: { cameraSource: Fr
           className="absolute"
           style={{ left: display.left, top: display.top, width: display.width, height: display.height }}
         />
-        {payload && <OverlayHandles payload={payload} display={display} />}
+        {payload && !inkTool && <OverlayHandles payload={payload} display={display} />}
+        {payload?.slide && <InkLayer payload={payload} display={display} />}
         <CameraHint stalled={cameraStalled} />
       </div>
     </section>

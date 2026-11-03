@@ -10,6 +10,7 @@
  *   recordings — metadata for recordings stored in OPFS (stage THIRD)
  *   settings   — app-wide key/value settings
  */
+import type { InkStroke } from "@bernou/audience-protocol";
 import Dexie, { type EntityTable } from "dexie";
 
 export interface SessionRecord {
@@ -114,6 +115,15 @@ export interface RecordingRecord {
   status?: "recording" | "complete" | "interrupted";
 }
 
+/** One slide's marks. The same shape the audience payload carries. */
+export interface InkRecord {
+  id: string;
+  sessionId: string;
+  slideIndex: number;
+  strokes: InkStroke[];
+  updatedAt: number;
+}
+
 export interface SettingRecord {
   key: string;
   value: unknown;
@@ -126,6 +136,7 @@ export class BernouDB extends Dexie {
   notes!: EntityTable<NoteRecord, "id">;
   recordings!: EntityTable<RecordingRecord, "id">;
   settings!: EntityTable<SettingRecord, "key">;
+  ink!: EntityTable<InkRecord, "id">;
 
   constructor(name = "bernou") {
     super(name);
@@ -136,6 +147,16 @@ export class BernouDB extends Dexie {
       notes: "id, sessionId, [sessionId+slideIndex]",
       recordings: "id, sessionId, createdAt",
       settings: "key",
+    });
+    // Every table is listed again: a version is the whole schema, not a change to it.
+    this.version(2).stores({
+      sessions: "id, updatedAt, createdAt",
+      slides: "id, sessionId, [sessionId+index]",
+      scripts: "sessionId, updatedAt",
+      notes: "id, sessionId, [sessionId+slideIndex]",
+      recordings: "id, sessionId, createdAt",
+      settings: "key",
+      ink: "id, sessionId, [sessionId+slideIndex]",
     });
   }
 }

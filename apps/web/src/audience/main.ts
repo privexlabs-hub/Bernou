@@ -50,7 +50,8 @@ function applyPayload(p: AudiencePayload) {
   engine.setPayload(p);
   // camera follows the payload's deviceId
   const wantCam = p.camera.enabled && p.layout !== "slide-full" && p.layout !== "blank" ? p.camera.deviceId : null;
-  void camera.use(wantCam).then(sendStatus);
+  // Not on every payload: ink can send these many times a second.
+  if (wantCam !== camera.deviceId) void camera.use(wantCam).then(sendStatus);
   // request any asset we don't have
   const need = [p.slide?.assetId, p.branding?.logoAssetId].filter((x): x is string => !!x);
   for (const id of need) {

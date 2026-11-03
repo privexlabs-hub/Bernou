@@ -6,10 +6,12 @@ import { useEffect } from "react";
 import { getSession, updateSession } from "@/db/repositories/sessions";
 import { getSlides } from "@/db/repositories/slides";
 import { getScript } from "@/db/repositories/scripts";
+import { getInk } from "@/db/repositories/ink";
 import { getNotes } from "@/db/repositories/notes";
 import { useSessionStore, IDLE_IMPORT } from "@/stores/private/sessionStore";
 import { useDeckStore } from "@/stores/public/deckStore";
 import { useCompositionStore } from "@/stores/public/compositionStore";
+import { useInkStore } from "@/stores/public/inkStore";
 import { useScriptStore } from "@/stores/private/scriptStore";
 import { useNotesStore } from "@/stores/private/notesStore";
 import { useTeleprompterStore } from "@/stores/private/teleprompterStore";
@@ -38,12 +40,13 @@ export function useSessionLoader(sessionId: string | undefined) {
       comp.load(rec.composition);
       useTeleprompterStore.getState().loadSettings(rec.teleprompter);
 
-      const [slides, script, notes] = await Promise.all([getSlides(sessionId), getScript(sessionId), getNotes(sessionId)]);
+      const [slides, script, notes, ink] = await Promise.all([getSlides(sessionId), getScript(sessionId), getNotes(sessionId), getInk(sessionId)]);
       if (cancelled) return;
       deck.setSlides(toDeckSlides(slides, rec.deckRevision ?? 0));
       deck.setActiveIndex(rec.activeSlideIndex);
       useScriptStore.getState().setSession(sessionId, script?.sections ?? []);
       useNotesStore.getState().setSession(sessionId, notes);
+      useInkStore.getState().load(ink);
       setLoading(false);
 
       const pending = takePendingImport(sessionId);
@@ -59,6 +62,7 @@ export function useSessionLoader(sessionId: string | undefined) {
       // Private text must not stay on screen while the next session loads.
       useScriptStore.getState().setSession(null, []);
       useNotesStore.getState().setSession(null, []);
+      useInkStore.getState().load({});
       useTeleprompterStore.getState().resetPlayback();
       setImportStatus(IDLE_IMPORT);
     };

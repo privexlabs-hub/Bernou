@@ -40,10 +40,14 @@ export function cameraRect(camera: CameraSpec, outputW: number, outputH: number)
   return { x: camera.x * outputW, y: camera.y * outputH, w, h };
 }
 
-/** The slide area for a layout. */
-export function slideRect(payload: AudiencePayload): Rect {
-  const { width, height } = payload.output;
-  return { x: 0, y: 0, w: width, h: height };
+/**
+ * Exactly where a slide is drawn in the output, or null if it isn't drawn at all.
+ * The slide layer and anything placed on the slide share this, rounding included.
+ */
+export function slideContentRect(payload: { output: { width: number; height: number }; layout: AudiencePayload["layout"]; slide: { width: number; height: number } | null }): Rect | null {
+  if (payload.layout === "blank" || payload.layout === "camera-full" || !payload.slide) return null;
+  const r = fitContain(payload.slide.width, payload.slide.height, payload.output.width, payload.output.height);
+  return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) };
 }
 
 export function pointInRect(px: number, py: number, r: Rect): boolean {
