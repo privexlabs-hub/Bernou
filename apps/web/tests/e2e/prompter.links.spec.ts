@@ -162,6 +162,9 @@ test.describe("slide links are optional @nomedia", () => {
     await page.getByTestId("section-add-after").first().click();
     await expect(page.getByTestId("script-section")).toHaveCount(13);
     await expect(page.getByTestId("section-slide").nth(1)).toContainText("No slide");
+    // The whole label fits, rather than being cut off to "No s…".
+    const clipped = await page.getByTestId("section-slide").nth(1).locator("span").first().evaluate((el) => el.scrollWidth > el.clientWidth);
+    expect(clipped).toBe(false);
     await page.getByTestId("section-body").nth(1).fill("Added later");
     await page.getByTestId("tab-prompter").click();
     await expect(page.getByTestId("prompter-section")).toHaveCount(13);

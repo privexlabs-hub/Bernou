@@ -178,7 +178,7 @@ function SectionCard({
         <Input value={section.title} onChange={(e) => onChange({ title: e.target.value })} placeholder="Section title (optional)" className="h-7 flex-1 text-xs" aria-label="Section title" data-testid="section-title" />
         <Select value={section.slideIndex === null ? "none" : String(section.slideIndex)} onValueChange={(v) => onChange({ slideIndex: v === "none" ? null : Number(v) })}>
           <SelectTrigger
-            className="h-7 w-[92px]"
+            className="h-7 w-[116px] shrink-0"
             aria-label="Linked slide"
             title="Optional. A linked section is listed under that slide in Notes, and with Follow slides on, the prompter jumps to it when you reach that slide."
             data-testid="section-slide"
