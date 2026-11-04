@@ -17,7 +17,7 @@ pnpm install
 pnpm dev            # presenter workspace at http://localhost:5173 (use pnpm install, not npm install: npm leaves the workspace packages uninstalled)
 ```
 
-Open the app, create a presentation, import a PDF (export PowerPoint to PDF first), paste a script, turn on your camera and microphone, then **Open audience window** and share *that window* in Zoom, Meet or Teams. **Record** saves the audience output with your microphone; download it when you stop, or later from the dashboard.
+Open the app, create a presentation, import a PDF (export PowerPoint to PDF first), paste a script, turn on your camera and microphone, then **Open audience window** and share *that window* in Zoom, Meet or Teams. **Record** saves the audience output with your microphone; download it when you stop, or later from the dashboard. The tools above the preview (pointer, pen, highlighter, eraser) mark the slide for the audience too.
 
 ## Verify it
 

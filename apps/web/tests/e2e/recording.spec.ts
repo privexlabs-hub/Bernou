@@ -268,13 +268,41 @@ test("devices and layout can change during a recording", async ({ page }) => {
   const wall = (Date.now() - t0) / 1000;
   await loadRecording(page, await stopAndDownload(page));
   const info = await fileInfo(page);
-  expect(info.duration).toBeGreaterThan(fullAt);
+  expect(info.duration, `file ${info.duration}s, ${wall}s by the test's clock`).toBeGreaterThan(fullAt);
   const late = Math.max(0, info.duration - wall); // the test sees recording begin a moment after it does
   expect((await audioStats(page, 0.3, micAt + late - 0.3)).rms).toBeLessThan(MUTED);
   expect((await audioStats(page, micAt + late + 1, offAt + late - 0.5)).rms).toBeGreaterThan(0.01);
   expect(await overlaySaturation(page, 0.5)).toBeLessThan(20); // camera off: plain slide
   expect(await overlaySaturation(page, offAt + late - 0.3)).toBeGreaterThan(40); // on
   expect(await overlaySaturation(page, offAt + late + 1.5)).toBeLessThan(20); // off again
+});
+
+test("turning the mic off mid-recording keeps the file's full length, and it can come back", async ({ page }) => {
+  await studio(page);
+  await micOn(page);
+  await startRecording(page);
+  const t0 = Date.now();
+  await page.waitForTimeout(3000);
+  await page.getByTestId("mic-toggle").click();
+  await expect(page.getByTestId("mic-toggle")).toHaveAttribute("data-live", "false");
+  await page.getByTestId("camera-toggle").click(); // the combination that lost most of a file
+  await expect(page.getByTestId("camera-toggle")).toHaveAttribute("data-live", "true");
+  await page.waitForTimeout(2000);
+  await page.getByTestId("camera-toggle").click();
+  await page.waitForTimeout(5000);
+  const backAt = (Date.now() - t0) / 1000;
+  await micOn(page);
+  await page.waitForTimeout(3000);
+  const wall = (Date.now() - t0) / 1000;
+
+  await loadRecording(page, await stopAndDownload(page));
+  const info = await fileInfo(page);
+  expect(info.duration, `file ${info.duration}s, ${wall}s by the test's clock`).toBeGreaterThan(wall * 0.95);
+  expect(info.audioSeconds, `audio ${info.audioSeconds}s of ${info.duration}s`).toBeGreaterThan(info.duration * 0.95);
+  // Silent while off, and the voice returns at the right moment rather than early.
+  const late = Math.max(0, info.duration - wall);
+  expect((await audioStats(page, 4.5 + late, backAt + late - 1)).rms).toBeLessThan(MUTED);
+  expect((await audioStats(page, info.duration - 1.5, info.duration - 0.2)).rms).toBeGreaterThan(0.01);
 });
 
 test("double-clicking Record makes one recording", async ({ page }) => {

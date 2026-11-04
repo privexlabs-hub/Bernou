@@ -33,6 +33,13 @@ export function createAudioGraph(ctx: AudioContext = new AudioContext()): AudioG
   analyser.smoothingTimeConstant = 0.6;
   const dest = ctx.createMediaStreamDestination();
   gain.connect(dest);
+  // With nothing playing into it the output stops producing audio, and a recorder
+  // relying on that track can end up with a file that stops early too. Turning
+  // the mic off must give silence, not nothing.
+  const silence = ctx.createConstantSource();
+  silence.offset.value = 0;
+  silence.connect(dest);
+  silence.start();
   // Analyser taps the source BEFORE gain so the level is visible while muted.
   let source: MediaStreamAudioSourceNode | null = null;
   let muted = false;
