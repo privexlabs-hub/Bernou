@@ -18,6 +18,8 @@ Nothing else reaches the engine. In particular, the following never cross the bo
 | Session name, file names, deck title, slide text layers | `db/`, `stores/public/deckStore` (rasterised bitmaps only cross) |
 | Navigation UI | React tree in the presenter window only |
 
+Ink (pen and highlighter marks, and the pointer) crosses on purpose, because it's meant to be seen. It's integers and a fixed palette of colours, for the active slide only, with limits enforced by the schema on both send and receive.
+
 The **only free text** in the payload is `branding.title`: set in a field labelled "visible to audience", capped at 120 characters.
 
 A recording holds the composition plus the microphone through the audio graph. It is kept in this browser (OPFS) until the presenter downloads or deletes it. Starting or stopping one publishes nothing to the audience, and the session title appears only in the downloaded file's name.
