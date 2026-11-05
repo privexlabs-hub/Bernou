@@ -34,11 +34,13 @@ Maintained per the spec (§14): nothing is marked complete unless implemented an
 | PPTX import | ⚠️ | **Refused with guidance** to export to PDF. No faithful in-browser renderer exists; Stage FOURTH. |
 | Composition engine | ✅ | Slide (letterbox), camera (circle/rect, cover-fit, mirror, border, shadow, opacity), branding title; golden + determinism tests |
 | Audience preview | ✅ | Same engine at real output resolution, CSS-scaled |
-| Camera / microphone | ✅ | Selection, labels after grant, `devicechange`, error guidance, level meter, mute via gain, never routed to speakers |
+| Camera / microphone | ✅ | Selection, labels after grant, `devicechange`, error guidance, level meter, mute via gain, never routed to speakers. The browser's noise suppression, echo cancellation and auto gain are requested and checked on (on Chromium's fake device) |
+| Recording low-cut filter | ✅ Chrome | Always on, 80 Hz Butterworth high-pass before the recorder. Measured in a recording: −12.3 dB at 40 Hz, −3.0 at 80 Hz, −0.3 at 150 Hz against 1 kHz. Removes rumble (wind buffeting, traffic and engine drone, handling noise, hum). **Does not** remove voices, birds, horns or hiss in the voice's own range: only the browser's suppression acts on those. Measured with a page-made test signal, which skips the browser's own processing, so how the two combine on a real mic is untested. Chrome's processing may already include a high-pass of its own (unverified). The level meter shows the sound before the filter. Outdoors, a windscreen or a clip-on mic near the mouth helps more than any filter. `recording.spec` |
 | Overlay interaction | ✅ | Drag, corner resize, keyboard nudge, double-click shape toggle, corner presets; clamped in the protocol |
 | Script editor | ✅ | Paste, sections, split at blank lines, reorder, delete, slide links, autosave |
 | Speaker notes | ✅ | Per slide, autosave, shows linked script sections |
 | Teleprompter | ✅ | Time-based scroll model; start/pause/resume/stop/reset; speed 1–400 px/s/font/colours/alignment/reading line & zone/mirror; manual wheel+keys; progress + time remaining. Holds its place while another tab or browser tab is showing. Follow slides is optional and off by default: slide → prompter only, first linked section, no link means no jump |
+| Floating prompter | ✅ Chrome · ✅ Firefox · ✅ bundled Chromium · panel only in WebKit | **Float** in the Prompter tab moves the text into an always-on-top window (Document Picture-in-Picture) you drag next to the camera. Its controls: play/pause, speed, previous/next slide, bring back. Keys while it has focus: Space, ←/→ speed, ↑/↓ nudge, Esc, Home, PageUp/PageDown slides, the Stop all shortcut. Settings in the tab apply to it live. Moving between the tab and the window, or resizing, keeps the reading place. Stop all closes it. Browsers without the API (Safari) get a panel you can drag and resize **inside** the browser window only. See below. `prompter.float.spec`, `prompter.reflow.spec` |
 | Slide links in the script | ✅ | Optional. A linked section is listed under that slide in Notes, and is the target for Follow slides. Every section shows in the prompter, in script order, linked or not |
 | Pointer, pen, highlighter, eraser | ✅ Chrome · ✅ Firefox smoke test | Through the payload and engine, so the preview, audience window and recordings match. Marks stay per slide until cleared, up to 200 strokes and 5,000 points a slide. No text tool |
 | Audience window | ✅ | Separate Vite entry; BroadcastChannel; camera re-acquired by deviceId (video only); fullscreen; resync after either window reloads; blank on stop; camera problems reported to the presenter |
@@ -74,6 +76,23 @@ Output of real runs, not estimates. All with fake media devices on one Intel Mac
 - **Long recordings**: the longest test was 6.7 minutes. Hour-long runs, memory use and audio drift over them are unmeasured.
 - **Exactly as presented** means the composition the preview draws. The audience window opens its own camera, so its frames aren't the same frames, and if its camera fails the recording still shows the presenter's.
 
+### Floating prompter: what was measured and what it can't do
+
+On Chrome 156, driving Chrome directly (not Playwright's focus emulation), one Intel Mac:
+
+| Case | Result |
+|---|---|
+| Window size | 560×260 asked for, given exactly. Smallest Chrome allows is 240 wide; the largest it gave was 697×464 |
+| Position and size after closing and reopening | Kept, in the same browser session. A page can't set the position: the presenter drags it once |
+| Studio tab hidden or minimised | The window keeps animating (about 58 frames a second); scrolling at speed 40 measured 38.5–40.2 px/s; a slide change from it reached the audience window within 2 s; speed and slide keys exact across three logged runs |
+| Firefox | The API is present and the spec passes in Playwright's Firefox |
+
+- **Entire-screen sharing shows it.** Nothing in a browser can hide a window from a full-screen share, so viewers would read the script. Share the audience window, or a single window or tab. Bernou's own recordings never include it: they draw only from the audience payload.
+- **Keys reach only the focused window.** With Zoom or another app focused, Space and a clicker go there, not to the floating prompter. Its buttons always work with a click.
+- **Not measured:** keyboard focus right after it opens (automation reported both windows as focused); Chrome over macOS full-screen spaces; a real presentation clicker; the recording frame rate with it open on a quiet machine (the machine was heavily loaded, and the readings were meaningless).
+- **Two unexplained readings** in an early run, with the window visible on a desktop in use: the speed fell 40→25, and the text went backwards for 5 s. Neither recurred in three later runs that logged every input event (only the test's own clicks and keys arrived). Outside input reaching the visible test window is the likely cause, not proven.
+- **Fixed alongside:** the Stop all shortcut did nothing while the prompter's text had focus, because the prompter swallowed the key. It now ignores keys with Ctrl, ⌘ or Alt.
+
 ### Audience window sharpness
 
 The output is fixed at 1920×1080. On a Retina screen the audience window stretches that (measured: 1.46× at a 2796 px wide window), so text is softer than a PDF viewer, which redraws at screen resolution. Colours match the PDF's values exactly in the sample deck; comparing with a macOS viewer hasn't been done.
@@ -92,4 +111,4 @@ Not yet deployed anywhere, so this is untested. `audience.html` is built as its 
 
 ### Test environment note
 
-E2E was run on Playwright's Chromium and on system Chrome (`PW_CHROME_CHANNEL=chrome`). Firefox was run: its `@nomedia` specs passed and its media specs are skipped by design. **WebKit E2E has not been executed.** Machine load affects the timing-sensitive specs, so don't run other heavy work beside them.
+E2E was run on Playwright's Chromium and on system Chrome (`PW_CHROME_CHANNEL=chrome`). Firefox was run: its `@nomedia` specs passed and its media specs are skipped by design. **WebKit (Playwright's 27.2) was run for the prompter specs only:** the floating panel's 13 tests pass, but **PDF and image import fail there** (the slide counter never fills), so its 2 slide-control tests and 10 import tests fail. Safari import is therefore untested and possibly broken. Machine load affects the timing-sensitive specs, so don't run other heavy work beside them.
