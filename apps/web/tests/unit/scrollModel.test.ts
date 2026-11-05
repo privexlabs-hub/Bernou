@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createScrollModel, nudge, pause, progress, remainingSeconds, reset, resume, seek, setMaxPosition, setSpeed, start, stop, tick, toggle, nextSpeed } from "@/features/teleprompter/scrollModel";
+import { anchorAt, createScrollModel, nudge, pause, positionFor, progress, remainingSeconds, reset, resume, seek, setMaxPosition, setSpeed, start, stop, tick, toggle, nextSpeed } from "@/features/teleprompter/scrollModel";
 
 const base = () => setMaxPosition(createScrollModel(100), 1000);
 
@@ -104,5 +104,54 @@ describe("nextSpeed", () => {
   it("gets back onto the steps from a slider value", () => {
     expect(nextSpeed(37, 1)).toBe(40);
     expect(nextSpeed(37, -1)).toBe(35);
+  });
+});
+
+describe("reading anchor", () => {
+  const boxes = [
+    { id: "a", top: 100, height: 200 },
+    { id: "b", top: 320, height: 100 },
+    { id: "c", top: 440, height: 400 },
+  ];
+
+  it("finds the section under the line and how far into it the line is", () => {
+    expect(anchorAt(boxes, 200)).toEqual({ sectionId: "a", fraction: 0.5 });
+    expect(anchorAt(boxes, 340)).toEqual({ sectionId: "b", fraction: 0.2 });
+  });
+
+  it("the first section's top and the last section's end", () => {
+    expect(anchorAt(boxes, 100)).toEqual({ sectionId: "a", fraction: 0 });
+    expect(anchorAt(boxes, 840)).toEqual({ sectionId: "c", fraction: 1 });
+    expect(anchorAt(boxes, 5000)).toEqual({ sectionId: "c", fraction: 1 });
+  });
+
+  it("the gap between sections counts as the end of the one above", () => {
+    expect(anchorAt(boxes, 310)).toEqual({ sectionId: "a", fraction: 1 });
+  });
+
+  it("has nothing to anchor to above the first section, or with no sections", () => {
+    expect(anchorAt(boxes, 50)).toBeNull();
+    expect(anchorAt([], 50)).toBeNull();
+  });
+
+  it("converts back to the same place after the text rewraps", () => {
+    const anchor = anchorAt(boxes, 200)!;
+    const rewrapped = [
+      { id: "a", top: 100, height: 600 },
+      { id: "b", top: 720, height: 300 },
+      { id: "c", top: 1040, height: 900 },
+    ];
+    // Line 80px down the viewport: section top 100 + half of 600, less the line.
+    expect(positionFor(anchor, rewrapped, 80)).toBe(320);
+  });
+
+  it("does not go above the top", () => {
+    expect(positionFor({ sectionId: "a", fraction: 0 }, boxes, 500)).toBe(0);
+  });
+
+  it("ignores an anchor whose section has gone", () => {
+    expect(positionFor({ sectionId: "gone", fraction: 0.5 }, boxes, 80)).toBeNull();
+    expect(positionFor(null, boxes, 80)).toBeNull();
+    expect(positionFor({ sectionId: "a", fraction: 0.5 }, [], 80)).toBeNull();
   });
 });

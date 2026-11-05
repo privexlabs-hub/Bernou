@@ -12,6 +12,9 @@ interface TeleprompterState {
   /** Whether the prompter's tab is showing. It only moves while it can be read. */
   visible: boolean;
   setVisible: (visible: boolean) => void;
+  /** Where the reading line is in the script, so the place survives a rewrap or a move to another window. */
+  anchor: SM.ReadingAnchor | null;
+  setAnchor: (anchor: SM.ReadingAnchor | null) => void;
   /** Back to the top, stopped: for leaving a session. */
   resetPlayback: () => void;
   loadSettings: (s: TeleprompterSettings) => void;
@@ -35,9 +38,11 @@ export const useTeleprompterStore = create<TeleprompterState>((set, get) => ({
   settings: structuredClone(DEFAULT_TELEPROMPTER),
   model: SM.createScrollModel(DEFAULT_TELEPROMPTER.speed),
   visible: false,
+  anchor: null,
+  setAnchor: (anchor) => set({ anchor }),
   // Forgets the last tick, or the gap would count as elapsed time on return.
   setVisible: (visible) => set({ visible, model: { ...get().model, lastTs: null } }),
-  resetPlayback: () => set({ model: SM.createScrollModel(get().settings.speed) }),
+  resetPlayback: () => set({ model: SM.createScrollModel(get().settings.speed), anchor: null }),
   // Over the defaults: rows saved before a setting existed don't have it.
   loadSettings: (settings) => set({ settings: { ...DEFAULT_TELEPROMPTER, ...structuredClone(settings) }, model: SM.setSpeed(SM.stop(get().model), settings.speed) }),
   patchSettings: (p) => {

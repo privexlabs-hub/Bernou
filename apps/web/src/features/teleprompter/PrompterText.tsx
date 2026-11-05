@@ -9,18 +9,19 @@
  *
  * Nothing here can reach the audience: it is DOM in the presenter's windows only.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownToLine } from "lucide-react";
 import { useTeleprompterStore } from "@/stores/private/teleprompterStore";
 import { useScriptStore } from "@/stores/private/scriptStore";
 import { useDeckStore } from "@/stores/public/deckStore";
+import { anchorAt, positionFor, type SectionBox } from "./scrollModel";
 import { cn } from "@/lib/utils";
 
 export function PrompterText() {
   const settings = useTeleprompterStore((s) => s.settings);
   const model = useTeleprompterStore((s) => s.model);
   const visible = useTeleprompterStore((s) => s.visible);
-  const { stop, nudge, seek, setMaxPosition, tick } = useTeleprompterStore.getState();
+  const { stop, nudge, seek, setMaxPosition, setAnchor, tick } = useTeleprompterStore.getState();
   const sections = useScriptStore((s) => s.sections);
   const activeSlide = useDeckStore((s) => s.activeIndex);
   const slideCount = useDeckStore((s) => s.slides.length);
@@ -43,21 +44,59 @@ export function PrompterText() {
     return () => cancelAnimationFrame(id);
   }, [model.status, visible, tick]);
 
-  // Apply model position to the DOM and measure max position.
-  useEffect(() => {
+  // The layout the position was last valid for. When it changes, the pixel
+  // position points at different words until the anchor has put it right.
+  const layout = useRef<{ width: number; height: number; fontSize: number } | null>(null);
+  const restoring = useRef(false);
+  const [measured, setMeasured] = useState(0);
+  const layoutIsStale = useCallback(() => {
+    const vp = viewport.current;
+    const last = layout.current;
+    if (restoring.current) return true;
+    return !vp || !last || last.width !== vp.clientWidth || last.height !== vp.clientHeight || last.fontSize !== settings.fontSize;
+  }, [settings.fontSize]);
+
+  const sectionBoxes = useCallback((): SectionBox[] => {
+    const boxes: SectionBox[] = [];
+    for (const { id } of useScriptStore.getState().sections) {
+      const el = sectionEls.current.get(id);
+      if (el) boxes.push({ id, top: el.offsetTop, height: el.offsetHeight });
+    }
+    return boxes;
+  }, []);
+
+  // Measure the viewport. The padding depends on its height, so what follows
+  // from the measurement waits for the next commit (below).
+  useLayoutEffect(() => {
     const vp = viewport.current;
     const ct = content.current;
     if (!vp || !ct) return;
     const measure = () => {
+      if (layoutIsStale()) restoring.current = true;
+      layout.current = { width: vp.clientWidth, height: vp.clientHeight, fontSize: settings.fontSize };
       setViewportHeight(vp.clientHeight);
-      setMaxPosition(Math.max(0, ct.scrollHeight - vp.clientHeight));
+      setMeasured((n) => n + 1);
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(vp);
     ro.observe(ct);
     return () => ro.disconnect();
-  }, [sections, settings.fontSize, settings.readingZone, settings.readingLine, setMaxPosition]);
+  }, [sections, settings.fontSize, settings.readingZone, settings.readingLine, layoutIsStale]);
+
+  // With the padding in place: the real scroll range, and the reading place put back.
+  useLayoutEffect(() => {
+    const vp = viewport.current;
+    const ct = content.current;
+    if (!vp || !ct) return;
+    setMaxPosition(Math.max(0, ct.scrollHeight - vp.clientHeight));
+    if (!restoring.current) return;
+    const store = useTeleprompterStore.getState();
+    const position = positionFor(store.anchor, sectionBoxes(), vp.clientHeight * settings.readingLine);
+    if (position !== null) seek(position);
+    vp.scrollTop = useTeleprompterStore.getState().model.position;
+    restoring.current = false;
+  }, [measured, viewportHeight, settings.readingLine, setMaxPosition, seek, sectionBoxes]);
 
   // No text to scroll: a playing prompter would otherwise run on with Pause disabled.
   useEffect(() => {
@@ -68,29 +107,29 @@ export function PrompterText() {
 
   useEffect(() => {
     const vp = viewport.current;
-    if (vp && Math.abs(vp.scrollTop - model.position) > 0.5) vp.scrollTop = model.position;
-  }, [model.position]);
+    if (vp && !layoutIsStale() && Math.abs(vp.scrollTop - model.position) > 0.5) vp.scrollTop = model.position;
+  }, [model.position, layoutIsStale]);
 
-  // Which section is under the reading line (for the indicator + follow-slides)
   const readingLinePx = useCallback(() => {
     const vp = viewport.current;
     return vp ? vp.clientHeight * settings.readingLine : 0;
   }, [settings.readingLine]);
 
+  // Which section is under the reading line (for the indicator), and the place
+  // to come back to. Only from a settled layout: old pixels on new text would
+  // record the wrong words.
   useEffect(() => {
-    const vp = viewport.current;
-    if (!vp) return;
-    const lineY = model.position + readingLinePx();
-    let found: string | null = null;
-    for (const [id, el] of sectionEls.current) {
-      if (el.offsetTop <= lineY) found = id;
-    }
+    if (!viewport.current || layoutIsStale()) return;
+    const anchor = anchorAt(sectionBoxes(), model.position + readingLinePx());
+    setAnchor(anchor);
+    const found = anchor?.sectionId ?? null;
     if (found !== currentSectionId) setCurrentSectionId(found);
-  }, [model.position, readingLinePx, currentSectionId, sections]);
+  }, [model.position, measured, readingLinePx, currentSectionId, sections, layoutIsStale, sectionBoxes, setAnchor]);
 
   // Follow slides: jump to the first section linked to the active slide. One
   // way only, and a slide with no link leaves the prompter where it is.
-  const lastSlideJump = useRef<number | null>(null);
+  // Remounting with a place already held (moving between windows) isn't a slide change.
+  const lastSlideJump = useRef<number | null>(useTeleprompterStore.getState().anchor ? activeSlide : null);
   useEffect(() => {
     if (!settings.followSlides) {
       lastSlideJump.current = null;
@@ -113,8 +152,8 @@ export function PrompterText() {
   );
   const onScroll = useCallback(() => {
     const vp = viewport.current;
-    if (vp && Math.abs(vp.scrollTop - useTeleprompterStore.getState().model.position) > 1) seek(vp.scrollTop);
-  }, [seek]);
+    if (vp && !layoutIsStale() && Math.abs(vp.scrollTop - useTeleprompterStore.getState().model.position) > 1) seek(vp.scrollTop);
+  }, [seek, layoutIsStale]);
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
