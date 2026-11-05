@@ -11,6 +11,7 @@ export async function fillNumberedScript(page: Page) {
   await expect(page.getByTestId("script-section").first()).toBeVisible();
   await page.getByTestId("section-split").first().click();
   await expect(page.getByTestId("script-section")).toHaveCount(30);
+  await expect(page.getByTestId("script-save-state")).toHaveText("Saved", { timeout: 5000 }); // or a reload would lose it
 }
 
 /** The number of the word under the reading line. `page` is whichever window holds the text. */

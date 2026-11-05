@@ -8,8 +8,15 @@ const deck = fileURLToPath(new URL("../../../../fixtures/decks/lecture-20.pdf", 
 const scrollTop = (page: Page) => page.getByTestId("prompter-viewport").evaluate((el) => el.scrollTop);
 const status = (page: Page) => page.getByTestId("teleprompter");
 
-async function withScript(page: Page, { slides = false } = {}) {
+// A 1x1 PNG. Images, because PDF import doesn't work in Playwright's WebKit, and the panel is for that browser.
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
+
+async function withScript(page: Page, { slides = false, images = false } = {}) {
   await createSessionViaUi(page);
+  if (images) {
+    await page.getByTestId("studio-import-input").setInputFiles(Array.from({ length: 5 }, (_, i) => ({ name: `slide${i + 1}.png`, mimeType: "image/png", buffer: PNG })));
+    await expect(page.getByTestId("slide-counter")).toHaveText("1 / 5", { timeout: 30_000 });
+  }
   if (slides) {
     await page.getByTestId("studio-import-input").setInputFiles(deck);
     await expect(page.getByTestId("slide-counter")).toHaveText("1 / 20", { timeout: 30_000 });
@@ -41,6 +48,8 @@ async function rate(page: Page, ms = 1500) {
 }
 
 test.describe("floating prompter window @nomedia", () => {
+  test.skip(({ browserName }) => browserName === "webkit", "Safari has no floating window: it gets the panel, tested below");
+
   test("opens from the button, styled, with the text in one place only @nomedia", async ({ page }) => {
     await withScript(page);
     const pip = await openFloat(page);
@@ -226,7 +235,7 @@ test.describe("floating prompter window @nomedia", () => {
         const before = await wordAtReadingLine(pip);
         const closed = pip.waitForEvent("close");
         if (how === "the Bring back button") await page.getByTestId("prompter-bring-back").click();
-        else if (how === "the float's own button") await pip.getByTestId("float-back").click();
+        else if (how === "the float's own button") await pip.getByTestId("float-back").click().catch(() => undefined); // it closes mid-click
         else await pip.evaluate(() => window.close());
         await closed;
 
@@ -507,15 +516,20 @@ test.describe("floating panel, in a browser without the window @nomedia", () => 
     expect(page.context().pages()).toHaveLength(1);
   });
 
-  async function dragBy(page: Page, dx: number, dy: number) {
+  /** Drags the handle to a point. At a corner, an unclamped panel would hang off the window. */
+  async function dragTo(page: Page, toX: number, toY: number) {
     const handle = (await page.getByTestId("float-drag-handle").boundingBox())!;
     const x = handle.x + handle.width / 2;
     const y = handle.y + handle.height / 2;
     await page.mouse.move(x, y);
     await page.mouse.down();
-    await page.mouse.move(x + dx / 2, y + dy / 2);
-    await page.mouse.move(x + dx, y + dy);
+    await page.mouse.move((x + toX) / 2, (y + toY) / 2);
+    await page.mouse.move(toX, toY);
     await page.mouse.up();
+  }
+  async function dragBy(page: Page, dx: number, dy: number) {
+    const handle = (await page.getByTestId("float-drag-handle").boundingBox())!;
+    await dragTo(page, handle.x + handle.width / 2 + dx, handle.y + handle.height / 2 + dy);
   }
 
   test("drags with the mouse and can't leave the window @nomedia", async ({ page }) => {
@@ -526,10 +540,10 @@ test.describe("floating panel, in a browser without the window @nomedia", () => 
     await expect.poll(async () => (await panel.boundingBox())!.x).toBeCloseTo(a.x - 200, 0);
     expect((await panel.boundingBox())!.y).toBeCloseTo(a.y + 100, 0);
 
-    await dragBy(page, -5000, -5000);
+    await dragTo(page, 0, 0);
     await expect.poll(async () => (await panel.boundingBox())!.x).toBe(0);
     expect((await panel.boundingBox())!.y).toBe(0);
-    await dragBy(page, 5000, 5000);
+    await dragTo(page, 1279, 719);
     const b = (await panel.boundingBox())!;
     expect(b.x + b.width).toBeCloseTo(1280, 0);
     expect(b.y + b.height).toBeCloseTo(720, 0);
@@ -538,7 +552,7 @@ test.describe("floating panel, in a browser without the window @nomedia", () => 
   test("a smaller browser window keeps it reachable @nomedia", async ({ page }) => {
     await withScript(page);
     const panel = await openPanel(page);
-    await dragBy(page, 5000, 5000);
+    await dragTo(page, 1279, 719);
     await page.setViewportSize({ width: 800, height: 500 });
     await expect.poll(async () => { const b = (await panel.boundingBox())!; return b.x + b.width; }).toBeLessThanOrEqual(800);
     const b = (await panel.boundingBox())!;
@@ -594,18 +608,18 @@ test.describe("floating panel, in a browser without the window @nomedia", () => 
   });
 
   test("controls work; arrow keys with focus in it change speed, not the slide @nomedia", async ({ page }) => {
-    await withScript(page, { slides: true });
+    await withScript(page, { images: true });
     const panel = await openPanel(page);
     await panel.getByTestId("float-faster").click();
     await expect(panel.getByTestId("float-speed")).toHaveText("45");
     await panel.getByTestId("float-slide-next").click();
-    await expect(page.getByTestId("slide-counter")).toHaveText("2 / 20");
+    await expect(page.getByTestId("slide-counter")).toHaveText("2 / 5");
 
     await page.keyboard.press("ArrowRight"); // focus stayed in the panel
     await expect(panel.getByTestId("float-speed")).toHaveText("50");
-    await expect(page.getByTestId("slide-counter")).toHaveText("2 / 20");
+    await expect(page.getByTestId("slide-counter")).toHaveText("2 / 5");
     await page.keyboard.press("PageDown");
-    await expect(page.getByTestId("slide-counter")).toHaveText("3 / 20");
+    await expect(page.getByTestId("slide-counter")).toHaveText("3 / 5");
 
     await page.keyboard.press("Space");
     await expect(status(page)).toHaveAttribute("data-status", "playing");
@@ -614,11 +628,11 @@ test.describe("floating panel, in a browser without the window @nomedia", () => 
   });
 
   test("the same keys with focus in the main window still change the slide @nomedia", async ({ page }) => {
-    await withScript(page, { slides: true });
+    await withScript(page, { images: true });
     const panel = await openPanel(page);
     await page.locator("body").click({ position: { x: 5, y: 300 } });
     await page.keyboard.press("ArrowRight");
-    await expect(page.getByTestId("slide-counter")).toHaveText("2 / 20");
+    await expect(page.getByTestId("slide-counter")).toHaveText("2 / 5");
     await expect(panel.getByTestId("float-speed")).toHaveText("40");
   });
 
