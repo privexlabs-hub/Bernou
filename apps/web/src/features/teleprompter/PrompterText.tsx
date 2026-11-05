@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 export function PrompterText() {
   const settings = useTeleprompterStore((s) => s.settings);
   const model = useTeleprompterStore((s) => s.model);
-  const visible = useTeleprompterStore((s) => s.visible);
+  const showing = useTeleprompterStore((s) => s.visible || s.float !== null);
   const { stop, nudge, seek, setMaxPosition, setAnchor, tick } = useTeleprompterStore.getState();
   const sections = useScriptStore((s) => s.sections);
   const activeSlide = useDeckStore((s) => s.activeIndex);
@@ -34,15 +34,18 @@ export function PrompterText() {
 
   // rAF loop while playing
   useEffect(() => {
-    if (model.status !== "playing" || !visible) return;
+    if (model.status !== "playing" || !showing) return;
+    // Frames come from the window showing the text. The time is always this
+    // window's: each window's frame timestamps have their own origin.
+    const win = viewport.current?.ownerDocument.defaultView ?? window;
     let id = 0;
-    const loop = (ts: number) => {
-      tick(ts);
-      id = requestAnimationFrame(loop);
+    const loop = () => {
+      tick(performance.now());
+      id = win.requestAnimationFrame(loop);
     };
-    id = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(id);
-  }, [model.status, visible, tick]);
+    id = win.requestAnimationFrame(loop);
+    return () => win.cancelAnimationFrame(id);
+  }, [model.status, showing, tick]);
 
   // The layout the position was last valid for. When it changes, the pixel
   // position points at different words until the anchor has put it right.
@@ -78,7 +81,9 @@ export function PrompterText() {
       setMeasured((n) => n + 1);
     };
     measure();
-    const ro = new ResizeObserver(measure);
+    // An observer belongs to the window that made it, so it's the text's window that must.
+    const win = (vp.ownerDocument.defaultView ?? window) as Window & typeof globalThis;
+    const ro = new win.ResizeObserver(measure);
     ro.observe(vp);
     ro.observe(ct);
     return () => ro.disconnect();
@@ -88,7 +93,7 @@ export function PrompterText() {
   useLayoutEffect(() => {
     const vp = viewport.current;
     const ct = content.current;
-    if (!vp || !ct) return;
+    if (!vp || !ct || viewportHeight !== vp.clientHeight) return; // the padding hasn't caught up yet
     setMaxPosition(Math.max(0, ct.scrollHeight - vp.clientHeight));
     if (!restoring.current) return;
     const store = useTeleprompterStore.getState();
@@ -250,6 +255,8 @@ export function PrompterText() {
 
 /** Shared key handling for the prompter. Returns true if handled. */
 export function handlePrompterKey(e: KeyboardEvent): boolean {
+  // Not ours, and swallowing them would stop the Stop all shortcut reaching its listener.
+  if (e.metaKey || e.ctrlKey || e.altKey) return false;
   const t = useTeleprompterStore.getState();
   switch (e.key) {
     case " ":

@@ -4,7 +4,7 @@
  * Nothing here can reach the audience: it is DOM in the presenter window only.
  */
 import { useState } from "react";
-import { Gauge, Minus, Pause, Play, Plus, RotateCcw, Square, Type } from "lucide-react";
+import { Gauge, Minus, Pause, PictureInPicture2, Play, Plus, RotateCcw, Square, Type } from "lucide-react";
 import { Button } from "@/ui/button";
 import { Slider } from "@/ui/slider";
 import { Switch } from "@/ui/switch";
@@ -16,6 +16,7 @@ import { useTeleprompterStore } from "@/stores/private/teleprompterStore";
 import { useScriptStore } from "@/stores/private/scriptStore";
 import { MAX_SPEED, MIN_SPEED, progress, remainingSeconds } from "./scrollModel";
 import { PrompterText } from "./PrompterText";
+import { closeFloat, isFloatSupported, openFloat } from "./floatingWindow";
 import { formatDuration } from "@/lib/format";
 
 export function Teleprompter() {
@@ -24,6 +25,8 @@ export function Teleprompter() {
   const { patchSettings, toggle, stop, reset } = useTeleprompterStore.getState();
   const sections = useScriptStore((s) => s.sections);
   const [showSettings, setShowSettings] = useState(false);
+  const float = useTeleprompterStore((s) => s.float);
+  const [floatError, setFloatError] = useState<string | null>(null);
 
   const pct = progress(model);
   const remaining = remainingSeconds(model);
@@ -84,6 +87,30 @@ export function Teleprompter() {
         <span className="font-mono text-[11px] text-muted-foreground" data-testid="prompter-remaining" title="Time remaining at this speed">
           {Number.isFinite(remaining) ? `-${formatDuration(remaining * 1000)}` : "--:--"}
         </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon-sm"
+              variant={float ? "secondary" : "ghost"}
+              onClick={() => {
+                setFloatError(null);
+                if (float) closeFloat();
+                else void openFloat().then(setFloatError);
+              }}
+              disabled={empty && !float}
+              aria-label={float ? "Bring the text back" : "Float the prompter"}
+              aria-pressed={!!float}
+              data-testid="prompter-float"
+            >
+              <PictureInPicture2 />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-64">
+            {isFloatSupported()
+              ? "Float the text in its own window, always on top. Drag it next to your camera. Viewers would see it in an entire-screen share, so share the audience window instead."
+              : "Float the text in a panel you can drag next to your camera. In this browser it can't leave the browser window; in Chrome or Edge it can."}
+          </TooltipContent>
+        </Tooltip>
         <Button size="icon-sm" variant={showSettings ? "secondary" : "ghost"} onClick={() => setShowSettings((v) => !v)} aria-label="Teleprompter settings" aria-pressed={showSettings} data-testid="prompter-settings-toggle">
           <Type />
         </Button>
@@ -145,7 +172,21 @@ export function Teleprompter() {
         <div className="h-full bg-primary transition-[width] duration-100" style={{ width: `${pct * 100}%` }} data-testid="prompter-progress" />
       </div>
 
-      <PrompterText />
+      {floatError && (
+        <p className="border-b border-border/70 px-3 py-1.5 text-xs text-destructive" role="alert" data-testid="prompter-float-error">
+          {floatError}
+        </p>
+      )}
+      {float ? (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-xs text-muted-foreground" data-testid="prompter-floating-notice">
+          <p>The text is in the floating window. These controls and settings still apply to it.</p>
+          <Button size="sm" variant="secondary" onClick={closeFloat} data-testid="prompter-bring-back">
+            Bring back
+          </Button>
+        </div>
+      ) : (
+        <PrompterText />
+      )}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { StudioHeader } from "./StudioHeader";
 import { SlideRail } from "@/features/slides/SlideRail";
 import { PreviewPanel } from "@/features/preview/PreviewPanel";
 import { RightPanel } from "./RightPanel";
+import { FloatingPrompter } from "@/features/teleprompter/FloatingPrompter";
 import { BottomToolbar } from "./BottomToolbar";
 import { useSlideShortcuts } from "@/features/slides/useSlideShortcuts";
 import { Link } from "react-router-dom";
@@ -68,6 +69,7 @@ export function Studio() {
           </PanelGroup>
         </div>
         <BottomToolbar />
+        <FloatingPrompter />
       </div>
     </TooltipProvider>
   );
