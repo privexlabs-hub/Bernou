@@ -204,3 +204,28 @@ export const silenceStart = (page: Page, from: number, to: number, level: number
     },
     { from, to, level },
   );
+
+/** Level of each frequency between two times, in dB relative to full scale. Hann-windowed, complex magnitude. */
+export const toneLevels = (page: Page, from: number, to: number, freqs: number[]) =>
+  page.evaluate(
+    ({ from, to, freqs }) => {
+      const a = (window as unknown as { __probe: Probe }).__probe.audio;
+      if (!a) return freqs.map(() => -Infinity);
+      const s = a.getChannelData(0).subarray(Math.floor(from * a.sampleRate), Math.floor(to * a.sampleRate));
+      const n = s.length;
+      return freqs.map((f) => {
+        const w = (2 * Math.PI * f) / a.sampleRate;
+        let re = 0;
+        let im = 0;
+        let windowSum = 0;
+        for (let i = 0; i < n; i++) {
+          const hann = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1));
+          windowSum += hann;
+          re += s[i]! * hann * Math.cos(w * i);
+          im += s[i]! * hann * Math.sin(w * i);
+        }
+        return 20 * Math.log10((2 * Math.hypot(re, im)) / windowSum);
+      });
+    },
+    { from, to, freqs },
+  );

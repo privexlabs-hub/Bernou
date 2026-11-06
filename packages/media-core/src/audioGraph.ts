@@ -1,14 +1,24 @@
 /**
  * Microphone audio graph.
  *
- *   mic track ─▶ MediaStreamAudioSourceNode ─▶ GainNode(mute) ─┬─▶ AnalyserNode (meter)
- *                                                                └─▶ MediaStreamAudioDestinationNode (→ recorder)
+ *   mic track ─▶ MediaStreamAudioSourceNode ─┬─▶ AnalyserNode (meter)
+ *                                            └─▶ BiquadFilter(low-cut) ─▶ GainNode(mute) ─▶ MediaStreamAudioDestinationNode (→ recorder)
  *
  * The graph is NEVER connected to AudioContext.destination (the speakers), so
  * there is no local monitoring feedback. Muting is gain=0 rather than
  * track.enabled=false, so the recorder's timeline stays continuous and the
  * meter still shows that the mic is alive.
  */
+
+/**
+ * The recording's low-cut: takes out rumble below the voice (wind buffeting,
+ * traffic and engine drone, handling noise, hum) and leaves speech alone.
+ * It does nothing for sounds in the voice's own range; the browser's noise
+ * suppression is all that acts on those.
+ */
+export const LOW_CUT_HZ = 80;
+/** Butterworth: flat to the corner, no bump. A highpass's Q is in dB in Web Audio, so this is 20·log10(1/√2), not 0.707. */
+export const LOW_CUT_Q = 20 * Math.log10(Math.SQRT1_2);
 
 export interface AudioGraph {
   readonly context: AudioContext;
@@ -27,7 +37,12 @@ export interface AudioGraph {
 }
 
 export function createAudioGraph(ctx: AudioContext = new AudioContext()): AudioGraph {
+  const lowCut = ctx.createBiquadFilter();
+  lowCut.type = "highpass";
+  lowCut.frequency.value = LOW_CUT_HZ;
+  lowCut.Q.value = LOW_CUT_Q;
   const gain = ctx.createGain();
+  lowCut.connect(gain);
   const analyser = ctx.createAnalyser();
   analyser.fftSize = 1024;
   analyser.smoothingTimeConstant = 0.6;
@@ -41,6 +56,7 @@ export function createAudioGraph(ctx: AudioContext = new AudioContext()): AudioG
   silence.connect(dest);
   silence.start();
   // Analyser taps the source BEFORE gain so the level is visible while muted.
+  // It's before the low-cut too, so the meter still shows rumble the recording won't have.
   let source: MediaStreamAudioSourceNode | null = null;
   let muted = false;
   const buf = new Float32Array(analyser.fftSize);
@@ -73,7 +89,7 @@ export function createAudioGraph(ctx: AudioContext = new AudioContext()): AudioG
       if (stream && stream.getAudioTracks().length > 0) {
         source = ctx.createMediaStreamSource(stream);
         source.connect(analyser);
-        source.connect(gain);
+        source.connect(lowCut);
       }
     },
     setMuted(m) {
@@ -91,6 +107,7 @@ export function createAudioGraph(ctx: AudioContext = new AudioContext()): AudioG
     async close() {
       source?.disconnect();
       source = null;
+      lowCut.disconnect();
       gain.disconnect();
       analyser.disconnect();
       for (const t of dest.stream.getTracks()) t.stop();

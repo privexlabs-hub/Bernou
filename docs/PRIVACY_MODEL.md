@@ -45,6 +45,8 @@ A recording holds the composition plus the microphone through the audio graph. I
 | Screen-sharing the wrong window | Documentation + distinct, stable audience window title + Capture Handle |
 | Capture continues after the presenter thinks it stopped | P9, P9b, P9c: Emergency Stop ends every track, including starts still in flight in either window, and stops the recorder first; indicators driven by `track.readyState` |
 
+The floating prompter is presenter-only DOM like the Prompter tab: a portal of the same React tree into a Picture-in-Picture window, reading only private stores. Its slide buttons change the slide through the public deck store, as any slide change does. Opening, playing and resizing it publishes nothing (`prompter.float.spec`). **It is a real window on screen**, so an entire-screen share shows it.
+
 **Out of scope:** an attacker with code execution on the presenter's machine; the presenter choosing to share their whole screen instead of the audience window; conferencing-app bugs.
 
 ## Four enforcement layers

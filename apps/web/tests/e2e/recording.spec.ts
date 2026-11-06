@@ -1,7 +1,7 @@
 import { expect, test, type Download, type Page } from "@playwright/test";
 import { fileURLToPath, URL } from "node:url";
 import { createSessionViaUi } from "./helpers";
-import { audioStats, countVideoFrames, fileInfo, loadRecording, pixelAt, regionChecksum, seekTimes, silenceStart } from "./recordingProbe";
+import { audioStats, countVideoFrames, toneLevels, fileInfo, loadRecording, pixelAt, regionChecksum, seekTimes, silenceStart } from "./recordingProbe";
 
 const deck = fileURLToPath(new URL("../../../../fixtures/decks/lecture-20.pdf", import.meta.url));
 const SCRIPT_CANARY = "CANARY-SCRIPT-REC-41";
@@ -498,4 +498,64 @@ test("a machine too slow to keep up loses frames, not the controls", async ({ pa
   await page.evaluate(() => void ((window as unknown as { __slow: boolean }).__slow = false));
   await page.getByTestId("record-toggle").click({ timeout: 10_000 });
   await expect(page.getByTestId("recording-finished")).toBeVisible({ timeout: 15_000 });
+});
+
+/**
+ * The low-cut filter, isolated: a page-made "microphone" skips the browser's
+ * own voice processing, so only the app's graph and the encoder touch it.
+ * Tones are compared within one file, which cancels the encoder's level changes.
+ */
+test("the recording's low-cut filter takes rumble out and leaves the voice range alone", async ({ page }) => {
+  await page.addInitScript(() => {
+    const real = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async (c) => {
+      if (!c?.audio) return real(c);
+      const ctx = new AudioContext(); // here, after the click, so it isn't suspended
+      const out = ctx.createMediaStreamDestination();
+      for (const f of [40, 80, 150, 1000]) {
+        const osc = ctx.createOscillator();
+        const level = ctx.createGain();
+        osc.frequency.value = f;
+        level.gain.value = 0.2; // four at 0.2 can't clip
+        osc.connect(level).connect(out);
+        osc.start();
+      }
+      return out.stream;
+    };
+  });
+  await studio(page);
+  await micOn(page);
+  await startRecording(page);
+  await page.waitForTimeout(4500);
+  await loadRecording(page, await stopAndDownload(page));
+
+  // The middle 2 s: past the encoder's start-up and the filter settling, and whole cycles of every tone.
+  const [at40, at80, at150, at1k] = await toneLevels(page, 1, 3, [40, 80, 150, 1000]);
+  console.log(`tones dBFS: 40 Hz ${at40!.toFixed(1)}, 80 Hz ${at80!.toFixed(1)}, 150 Hz ${at150!.toFixed(1)}, 1 kHz ${at1k!.toFixed(1)}`);
+  expect(at1k).toBeGreaterThan(-25); // the tones are really in the file
+  expect(at40! - at1k!).toBeLessThan(-9); // rumble: about -12 expected
+  expect(Math.abs(at80! - at1k! + 3)).toBeLessThan(1.5); // the corner: -3, so no resonant bump
+  expect(Math.abs(at150! - at1k!)).toBeLessThan(1); // the voice's range is kept
+});
+
+test("the app's mic has the browser's noise suppression, echo cancellation and gain on", async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __mics: MediaStreamTrack[] };
+    w.__mics = [];
+    const real = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async (c) => {
+      const s = await real(c);
+      w.__mics.push(...s.getAudioTracks());
+      return s;
+    };
+  });
+  await studio(page);
+  await micOn(page);
+  // Requested, not required: a real device may report false. Chromium's fake one honours them.
+  const settings = await page.evaluate(() => {
+    const live = (window as unknown as { __mics: MediaStreamTrack[] }).__mics.filter((t) => t.readyState === "live");
+    return live.map((t) => t.getSettings());
+  });
+  expect(settings).toHaveLength(1);
+  expect(settings[0]).toMatchObject({ echoCancellation: true, noiseSuppression: true, autoGainControl: true });
 });

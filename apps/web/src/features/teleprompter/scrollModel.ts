@@ -109,6 +109,35 @@ export function remainingSeconds(m: ScrollModel): number {
   return Math.max(0, (m.maxPosition - m.position) / m.speed);
 }
 
+/** A place in the script that survives the text rewrapping, unlike a pixel position. */
+export interface ReadingAnchor {
+  sectionId: string;
+  /** How far through the section the reading line is, 0..1. */
+  fraction: number;
+}
+
+/** A section as laid out: its top within the scrolling content, and its height. */
+export interface SectionBox {
+  id: string;
+  top: number;
+  height: number;
+}
+
+/** The place under the reading line. `lineY` is in the same coordinates as the boxes. */
+export function anchorAt(sections: SectionBox[], lineY: number): ReadingAnchor | null {
+  let found: SectionBox | null = null;
+  for (const s of sections) if (s.top <= lineY) found = s;
+  if (!found) return null;
+  return { sectionId: found.id, fraction: found.height > 0 ? clamp((lineY - found.top) / found.height, 0, 1) : 0 };
+}
+
+/** The scroll position that puts an anchor back on the reading line, or null if its section has gone. */
+export function positionFor(anchor: ReadingAnchor | null, sections: SectionBox[], linePx: number): number | null {
+  const section = anchor && sections.find((s) => s.id === anchor.sectionId);
+  if (!anchor || !section) return null;
+  return Math.max(0, section.top + anchor.fraction * section.height - linePx);
+}
+
 function clamp(v: number, lo: number, hi: number) {
   return Math.min(hi, Math.max(lo, v));
 }

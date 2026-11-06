@@ -1,16 +1,10 @@
 /**
- * PRIVATE teleprompter view.
- *
- * Renders the script as large text in a scroll container driven by the scroll
- * model (time-based, rAF). A fixed reading line with a dimmed zone above and
- * below marks the current reading position. Manual wheel/drag scrolling is
- * always allowed. Keyboard shortcuts work when the prompter has focus and
- * also globally (see useTeleprompterShortcuts) when not typing.
+ * PRIVATE teleprompter controls: transport and settings around the text.
  *
  * Nothing here can reach the audience: it is DOM in the presenter window only.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownToLine, Gauge, Minus, Pause, Play, Plus, RotateCcw, Square, Type } from "lucide-react";
+import { useState } from "react";
+import { Gauge, Minus, Pause, PictureInPicture2, Play, Plus, RotateCcw, Square, Type } from "lucide-react";
 import { Button } from "@/ui/button";
 import { Slider } from "@/ui/slider";
 import { Switch } from "@/ui/switch";
@@ -20,134 +14,28 @@ import { Tabs, TabsList, TabsTrigger } from "@/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/tooltip";
 import { useTeleprompterStore } from "@/stores/private/teleprompterStore";
 import { useScriptStore } from "@/stores/private/scriptStore";
-import { useDeckStore } from "@/stores/public/deckStore";
 import { MAX_SPEED, MIN_SPEED, progress, remainingSeconds } from "./scrollModel";
+import { PrompterText } from "./PrompterText";
+import { closeFloat, isFloatSupported, openFloat } from "./floatingWindow";
+import { CAMERA_LAYOUT, layoutPatch, textLayout, type TextLayout } from "./textLayout";
 import { formatDuration } from "@/lib/format";
-import { cn } from "@/lib/utils";
 
 export function Teleprompter() {
   const settings = useTeleprompterStore((s) => s.settings);
   const model = useTeleprompterStore((s) => s.model);
-  const visible = useTeleprompterStore((s) => s.visible);
-  const { patchSettings, play, pause, toggle, stop, reset, nudge, seek, setMaxPosition, tick } = useTeleprompterStore.getState();
+  const { patchSettings, toggle, stop, reset } = useTeleprompterStore.getState();
   const sections = useScriptStore((s) => s.sections);
-  const activeSlide = useDeckStore((s) => s.activeIndex);
-  const slideCount = useDeckStore((s) => s.slides.length);
-
-  const viewport = useRef<HTMLDivElement>(null);
-  const content = useRef<HTMLDivElement>(null);
-  const sectionEls = useRef(new Map<string, HTMLElement>());
   const [showSettings, setShowSettings] = useState(false);
-  const [currentSectionId, setCurrentSectionId] = useState<string | null>(null);
-  const [viewportHeight, setViewportHeight] = useState(0);
-
-  // rAF loop while playing
-  useEffect(() => {
-    if (model.status !== "playing" || !visible) return;
-    let id = 0;
-    const loop = (ts: number) => {
-      tick(ts);
-      id = requestAnimationFrame(loop);
-    };
-    id = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(id);
-  }, [model.status, visible, tick]);
-
-  // Apply model position to the DOM and measure max position.
-  useEffect(() => {
-    const vp = viewport.current;
-    const ct = content.current;
-    if (!vp || !ct) return;
-    const measure = () => {
-      setViewportHeight(vp.clientHeight);
-      setMaxPosition(Math.max(0, ct.scrollHeight - vp.clientHeight));
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(vp);
-    ro.observe(ct);
-    return () => ro.disconnect();
-  }, [sections, settings.fontSize, settings.readingZone, settings.readingLine, setMaxPosition]);
-
-  // No text to scroll: a playing prompter would otherwise run on with Pause disabled.
-  useEffect(() => {
-    if (sections.length > 0) return;
-    setMaxPosition(0);
-    stop();
-  }, [sections.length, setMaxPosition, stop]);
-
-  useEffect(() => {
-    const vp = viewport.current;
-    if (vp && Math.abs(vp.scrollTop - model.position) > 0.5) vp.scrollTop = model.position;
-  }, [model.position]);
-
-  // Which section is under the reading line (for the indicator + follow-slides)
-  const readingLinePx = useCallback(() => {
-    const vp = viewport.current;
-    return vp ? vp.clientHeight * settings.readingLine : 0;
-  }, [settings.readingLine]);
-
-  useEffect(() => {
-    const vp = viewport.current;
-    if (!vp) return;
-    const lineY = model.position + readingLinePx();
-    let found: string | null = null;
-    for (const [id, el] of sectionEls.current) {
-      if (el.offsetTop <= lineY) found = id;
-    }
-    if (found !== currentSectionId) setCurrentSectionId(found);
-  }, [model.position, readingLinePx, currentSectionId, sections]);
-
-  // Follow slides: jump to the first section linked to the active slide. One
-  // way only, and a slide with no link leaves the prompter where it is.
-  const lastSlideJump = useRef<number | null>(null);
-  useEffect(() => {
-    if (!settings.followSlides) {
-      lastSlideJump.current = null;
-      return;
-    }
-    if (lastSlideJump.current === activeSlide) return;
-    lastSlideJump.current = activeSlide;
-    const target = sections.find((s) => s.slideIndex === activeSlide);
-    const el = target ? sectionEls.current.get(target.id) : null;
-    if (el) seek(Math.max(0, el.offsetTop - readingLinePx()));
-  }, [activeSlide, settings.followSlides, sections, seek, readingLinePx]);
-
-  // Manual scrolling by wheel / touch moves the model, not just the DOM.
-  const onWheel = useCallback(
-    (e: React.WheelEvent) => {
-      e.preventDefault();
-      nudge(e.deltaY);
-    },
-    [nudge],
-  );
-  const onScroll = useCallback(() => {
-    const vp = viewport.current;
-    if (vp && Math.abs(vp.scrollTop - useTeleprompterStore.getState().model.position) > 1) seek(vp.scrollTop);
-  }, [seek]);
-
-  const onKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      const handled = handlePrompterKey(e.nativeEvent);
-      if (handled) {
-        e.preventDefault();
-        e.stopPropagation(); // keep slide-navigation arrows from firing while the prompter has focus
-      }
-    },
-    [],
-  );
+  const float = useTeleprompterStore((s) => s.float);
+  const [floatError, setFloatError] = useState<string | null>(null);
+  // The layout controls edit whichever place is showing the text.
+  const floating = float !== null;
+  const layout = textLayout(settings, floating);
+  const patchLayout = (p: Partial<TextLayout>) => patchSettings(layoutPatch(p, floating));
 
   const pct = progress(model);
   const remaining = remainingSeconds(model);
   const empty = sections.length === 0;
-  const zoneTop = settings.readingLine - settings.readingZone / 2;
-  const zoneBottom = settings.readingLine + settings.readingZone / 2;
-  const dimStyle = useMemo(
-    () => ({
-      background: `linear-gradient(to bottom, ${settings.backgroundColor}e6 0%, ${settings.backgroundColor}e6 ${Math.max(0, zoneTop) * 100}%, transparent ${Math.max(0, zoneTop) * 100 + 6}%, transparent ${Math.min(1, zoneBottom) * 100 - 6}%, ${settings.backgroundColor}e6 ${Math.min(1, zoneBottom) * 100}%, ${settings.backgroundColor}e6 100%)`,
-    }),
-    [settings.backgroundColor, zoneTop, zoneBottom],
-  );
 
   return (
     <div className="flex h-full flex-col" data-testid="teleprompter" data-status={model.status}>
@@ -204,6 +92,30 @@ export function Teleprompter() {
         <span className="font-mono text-[11px] text-muted-foreground" data-testid="prompter-remaining" title="Time remaining at this speed">
           {Number.isFinite(remaining) ? `-${formatDuration(remaining * 1000)}` : "--:--"}
         </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon-sm"
+              variant={float ? "secondary" : "ghost"}
+              onClick={() => {
+                setFloatError(null);
+                if (float) closeFloat();
+                else void openFloat().then(setFloatError);
+              }}
+              disabled={empty && !float}
+              aria-label={float ? "Bring the text back" : "Float the prompter"}
+              aria-pressed={!!float}
+              data-testid="prompter-float"
+            >
+              <PictureInPicture2 />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-64">
+            {isFloatSupported()
+              ? "Float the text in its own window, always on top. Drag it next to your camera. Viewers would see it in an entire-screen share, so share the audience window instead."
+              : "Float the text in a panel you can drag next to your camera. In this browser it can't leave the browser window; in Chrome or Edge it can."}
+          </TooltipContent>
+        </Tooltip>
         <Button size="icon-sm" variant={showSettings ? "secondary" : "ghost"} onClick={() => setShowSettings((v) => !v)} aria-label="Teleprompter settings" aria-pressed={showSettings} data-testid="prompter-settings-toggle">
           <Type />
         </Button>
@@ -211,22 +123,33 @@ export function Teleprompter() {
 
       {showSettings && (
         <div className="grid gap-3 border-b border-border/70 px-3 py-3 text-xs" data-testid="prompter-settings">
-          <Row label="Font size" value={`${settings.fontSize}px`}>
-            <Slider min={16} max={72} step={1} value={[settings.fontSize]} onValueChange={([v]) => v !== undefined && patchSettings({ fontSize: v })} aria-label="Font size" data-testid="prompter-font-size" />
+          {floating && (
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold text-primary" data-testid="prompter-layout-heading">
+                Floating window
+              </span>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={() => patchSettings({ ...CAMERA_LAYOUT })} data-testid="prompter-layout-reset">
+                Reset to camera layout
+              </Button>
+            </div>
+          )}
+          <Row label="Font size" value={`${layout.fontSize}px`}>
+            <Slider min={16} max={72} step={1} value={[layout.fontSize]} onValueChange={([v]) => v !== undefined && patchLayout({ fontSize: v })} aria-label="Font size" data-testid="prompter-font-size" />
           </Row>
           <Row label="Speed" value={`${settings.speed} px/s`}>
             <Slider min={MIN_SPEED} max={MAX_SPEED} step={1} value={[settings.speed]} onValueChange={([v]) => v !== undefined && patchSettings({ speed: v })} aria-label="Scroll speed" data-testid="prompter-speed-slider" />
           </Row>
-          <Row label="Reading line" value={`${Math.round(settings.readingLine * 100)}%`}>
-            <Slider min={10} max={90} step={1} value={[Math.round(settings.readingLine * 100)]} onValueChange={([v]) => v !== undefined && patchSettings({ readingLine: v / 100 })} aria-label="Reading line position" />
+          <Row label="Reading line" value={`${Math.round(layout.readingLine * 100)}%`}>
+            <Slider min={10} max={90} step={1} value={[Math.round(layout.readingLine * 100)]} onValueChange={([v]) => v !== undefined && patchLayout({ readingLine: v / 100 })} aria-label="Reading line position" />
           </Row>
-          <Row label="Reading zone" value={`${Math.round(settings.readingZone * 100)}%`}>
-            <Slider min={10} max={100} step={1} value={[Math.round(settings.readingZone * 100)]} onValueChange={([v]) => v !== undefined && patchSettings({ readingZone: v / 100 })} aria-label="Reading zone height" />
+          <Row label="Reading zone" value={`${Math.round(layout.readingZone * 100)}%`}>
+            <Slider min={10} max={100} step={1} value={[Math.round(layout.readingZone * 100)]} onValueChange={([v]) => v !== undefined && patchLayout({ readingZone: v / 100 })} aria-label="Reading zone height" />
           </Row>
+          {floating && <p className="-mt-1 text-[11px] text-muted-foreground">Speed, colours, Follow slides and Mirror are shared with the Prompter tab.</p>}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label>Alignment</Label>
-              <Tabs value={settings.align} onValueChange={(v) => patchSettings({ align: v as "left" | "center" })}>
+              <Tabs value={layout.align} onValueChange={(v) => patchLayout({ align: v as "left" | "center" })}>
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="left">Left</TabsTrigger>
                   <TabsTrigger value="center">Centre</TabsTrigger>
@@ -265,75 +188,22 @@ export function Teleprompter() {
         <div className="h-full bg-primary transition-[width] duration-100" style={{ width: `${pct * 100}%` }} data-testid="prompter-progress" />
       </div>
 
-      {/* Scroller */}
-      <div className="relative min-h-0 flex-1" style={{ background: settings.backgroundColor }}>
-        {empty ? (
-          <div className="flex h-full items-center justify-center p-6 text-center text-xs text-muted-foreground">Write or paste a script in the Script tab to use the teleprompter.</div>
-        ) : (
-          <>
-            <div
-              ref={viewport}
-              tabIndex={0}
-              role="region"
-              aria-label="Teleprompter text (private)"
-              className="h-full overflow-y-auto overscroll-contain outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/60"
-              style={{ scrollbarWidth: "none" }}
-              onWheel={onWheel}
-              onScroll={onScroll}
-              onKeyDown={onKeyDown}
-              data-testid="prompter-viewport"
-            >
-              <div
-                ref={content}
-                className="px-6"
-                style={{
-                  // In px: percentages here would be of the width, not the height.
-                  paddingTop: viewportHeight * settings.readingLine,
-                  paddingBottom: viewportHeight * (1 - settings.readingLine),
-                  fontSize: settings.fontSize,
-                  lineHeight: 1.45,
-                  color: settings.textColor,
-                  textAlign: settings.align,
-                  transform: settings.mirror ? "scaleX(-1)" : undefined,
-                }}
-              >
-                {sections.map((sec) => (
-                  <section
-                    key={sec.id}
-                    ref={(el) => {
-                      if (el) sectionEls.current.set(sec.id, el);
-                      else sectionEls.current.delete(sec.id);
-                    }}
-                    data-testid="prompter-section"
-                    data-current={sec.id === currentSectionId ? "true" : undefined}
-                    className={cn("mb-[1.2em] transition-opacity", sec.id === currentSectionId ? "opacity-100" : "opacity-90")}
-                  >
-                    {(sec.title || sec.slideIndex !== null) && (
-                      <h3 className="mb-[0.3em] text-[0.6em] font-semibold uppercase tracking-[0.15em] opacity-60">
-                        {sec.title}
-                        {sec.slideIndex !== null && (
-                          <span className={cn("rounded border border-current px-1 py-px text-[0.8em] opacity-70", sec.title && "ml-2")}>
-                            slide {sec.slideIndex + 1}
-                            {sec.slideIndex >= slideCount && " (not in this deck)"}
-                          </span>
-                        )}
-                      </h3>
-                    )}
-                    <p className="whitespace-pre-wrap break-words">{sec.body}</p>
-                  </section>
-                ))}
-              </div>
-            </div>
-            {/* Dimmed zones (pointer-events none so the text scrolls underneath) */}
-            <div className="pointer-events-none absolute inset-0" style={dimStyle} aria-hidden />
-            {/* Reading line */}
-            <div className="pointer-events-none absolute left-0 right-0 flex items-center" style={{ top: `${settings.readingLine * 100}%` }} aria-hidden data-testid="prompter-reading-line">
-              <ArrowDownToLine className="ml-1 h-3 w-3 -rotate-90 text-primary" />
-              <div className="h-px flex-1 bg-primary/50" />
-            </div>
-          </>
-        )}
-      </div>
+      {floatError && (
+        <p className="border-b border-border/70 px-3 py-1.5 text-xs text-destructive" role="alert" data-testid="prompter-float-error">
+          {floatError}
+        </p>
+      )}
+      {float ? (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-xs text-muted-foreground" data-testid="prompter-floating-notice">
+          <p>The text is in the floating window. These controls and settings still apply to it.</p>
+          <p>Drag it right under your camera, and keep it narrow: the closer the words are to the lens, the more you look at your viewers.</p>
+          <Button size="sm" variant="secondary" onClick={closeFloat} data-testid="prompter-bring-back">
+            Bring back
+          </Button>
+        </div>
+      ) : (
+        <PrompterText />
+      )}
     </div>
   );
 }
@@ -348,34 +218,4 @@ function Row({ label, value, children }: { label: string; value: string; childre
       {children}
     </div>
   );
-}
-
-/** Shared key handling for the prompter. Returns true if handled. */
-export function handlePrompterKey(e: KeyboardEvent): boolean {
-  const t = useTeleprompterStore.getState();
-  switch (e.key) {
-    case " ":
-      t.toggle();
-      return true;
-    case "Escape":
-      t.stop();
-      return true;
-    case "Home":
-      t.reset();
-      return true;
-    case "ArrowLeft":
-      t.speedDown();
-      return true;
-    case "ArrowRight":
-      t.speedUp();
-      return true;
-    case "ArrowUp":
-      t.nudge(e.shiftKey ? -200 : -40);
-      return true;
-    case "ArrowDown":
-      t.nudge(e.shiftKey ? 200 : 40);
-      return true;
-    default:
-      return false;
-  }
 }

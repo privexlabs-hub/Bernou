@@ -9,6 +9,7 @@ import { Button } from "@/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/ui/tooltip";
 import { useDevicesStore } from "@/stores/private/devicesStore";
 import { useRecordingStore, type RecordingStatus } from "@/stores/private/recordingStore";
+import { useTeleprompterStore } from "@/stores/private/teleprompterStore";
 import { emergencyStop, resumeAudience, type StopReport } from "./emergencyStop";
 import { getAudiencePublisher } from "@/features/audienceWindow/AudienceWindowControls";
 import { cn } from "@/lib/utils";
@@ -46,6 +47,7 @@ export function SafetyControls() {
   const lastOutcome = useRecordingStore((s) => s.lastOutcome);
   const recording = recordingStatus === "recording";
   const anyLive = live.camera || live.mic || live.audience || recording;
+  const floatWindow = useTeleprompterStore((s) => (s.float?.kind === "window" ? s.float.win : null));
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -54,9 +56,13 @@ export function SafetyControls() {
         void emergencyStop().then(setStopped);
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+    // A floating prompter is a window of its own: keys pressed there don't arrive here.
+    const windows = floatWindow ? [window, floatWindow] : [window];
+    for (const w of windows) w.addEventListener("keydown", onKey);
+    return () => {
+      for (const w of windows) w.removeEventListener("keydown", onKey);
+    };
+  }, [floatWindow]);
 
   return (
     <div className="flex items-center gap-2" data-testid="safety-controls">
