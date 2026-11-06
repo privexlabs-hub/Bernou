@@ -66,6 +66,13 @@ Output of real runs, not estimates. All with fake media devices on one Intel Mac
 | Ink at the 5,000-point cap, with recording, camera and audience window, on the dev build | Median frame 32 ms, worst 133 ms, audience kept updating (one run) |
 | Firefox 157 | WebM with audio and a finite duration; 6s smoke test only, since the media E2E suite is Chromium-only |
 
+- **Busy machine, measured 2026-11-06** (Intel i7-1068NG7, Chrome 156, fake camera, audience window open, 30 s runs):
+  - **Idle:** 30.2 fps, no frame held over 100 ms.
+  - **With six CPU-burning processes:** 6–22 fps, with freezes of 300–400 ms. The same pattern as a user's 10-minute recording (18.6 fps).
+  - **What stalls:** each recorder tick's task takes 50–150 ms, but Bernou's own work in it is about 1 ms (drawing about 0.7 ms). The rest is the browser's capture and encoding work.
+  - **Since then:** the preview draws 30 times a second, not at every refresh, and during a recording each frame is drawn once, by the recorder's clock. That halves drawing and removed multi-second holes (longest frame 5–6.7 s before, under 0.5 s after). Under heavy load the frame rate improved in some alternating runs and not in others, so **a busy machine still stutters**.
+  - Close heavy apps (a Docker VM was seen at about 130% CPU) before recording.
+- **Recording in QuickTime and other Apple players**: Chrome's MP4 fragments don't add up to their own start times. Chrome plays them by start time, QuickTime by adding durations, and a 10-minute file came out 16 s short on video. Downloads now set each fragment's last sample to end where the next one starts (`fixMp4FragmentGaps`). Recordings downloaded before that fix need downloading again.
 - **Testing hidden tabs**: Playwright keeps every page "visible" through focus emulation, so no Playwright test exercises this, including `recording.spec`. The hidden-tab numbers came from a one-off script driving Chrome directly, which isn't in the repo or CI. Re-measure after changing the frame clock, canvas drawing or payload scheduling.
 - **Fake microphone**: Chrome's file-based fake mic read silent in that script before any app code ran, so hidden-tab audio was measured with an oscillator standing in for the mic.
 - **After a crash**: the file holds what had reached storage, about 2 seconds short of the end (the keyframe interval), and is marked Interrupted. Its duration and row size come from the last save.

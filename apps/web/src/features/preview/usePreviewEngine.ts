@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createAssetCache, createEngine, type Engine, type FrameSource } from "@bernou/composition-engine";
 import type { AudiencePayload } from "@bernou/audience-protocol";
-import { setPreviewHandle } from "./previewHandle";
+import { createPreviewDraw, setPreviewHandle } from "./previewHandle";
 import { subscribeAudiencePayload } from "@/stores/audienceBridge";
 import { useDeckStore } from "@/stores/public/deckStore";
 
@@ -36,15 +36,8 @@ export function usePreviewEngine(cameraSource: FrameSource | null): PreviewEngin
     const eng = createEngine(canvas, { assets: cache });
     engineRef.current = eng;
     setEngine(eng);
-    let lastFrame = -1;
-    setPreviewHandle({
-      canvas,
-      // Skipped when the engine's own loop already drew since last time (a live camera).
-      draw: () => {
-        if (eng.frameCount() === lastFrame) eng.renderNow();
-        lastFrame = eng.frameCount();
-      },
-    });
+    const previewDraw = createPreviewDraw(eng);
+    setPreviewHandle({ canvas, draw: previewDraw.draw, capture: previewDraw.capture });
 
     // Decode what's on screen and what's next to it, on demand. The cache can't
     // hold every slide of a large deck, and whatever it drops has to come back.
@@ -76,6 +69,7 @@ export function usePreviewEngine(cameraSource: FrameSource | null): PreviewEngin
 
     eng.start();
     return () => {
+      previewDraw.dispose();
       unsubPayload();
       unsubDeck();
       eng.stop();

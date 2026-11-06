@@ -32,6 +32,8 @@ interface Active {
   startedAt: number;
   progress: ReturnType<typeof setInterval>;
   releaseLock: () => void;
+  /** Gives drawing back to the preview's own loop. */
+  releaseDraw: () => void;
   stopping: Promise<void> | null;
   failure: string | null;
 }
@@ -69,7 +71,7 @@ export async function startRecording(): Promise<void> {
   const preview = getPreviewHandle();
   const format = typeof MediaRecorder === "undefined" ? null : pickRecordingFormat((m) => MediaRecorder.isTypeSupported(m));
   if (!preview) return fail("The preview isn't ready yet. Try again in a moment.");
-  const { canvas, draw } = preview;
+  const { canvas, draw, capture: takeDrawing } = preview;
   if (!format) return fail("This browser can't record video.");
 
   const graph = await useDevicesStore.getState().ensureAudioGraph();
@@ -159,7 +161,7 @@ export async function startRecording(): Promise<void> {
     });
   }, PROGRESS_SAVE_MS);
 
-  active = { row, sink, capture, startedAt, progress, releaseLock: holdLock(id), stopping: null, failure: null };
+  active = { row, sink, capture, startedAt, progress, releaseLock: holdLock(id), releaseDraw: takeDrawing(), stopping: null, failure: null };
   store().set({ status: "recording", startedAt, warning });
 }
 
@@ -182,6 +184,7 @@ export function stopRecording({ quiet }: { quiet: boolean }): Promise<void> {
   clearInterval(a.progress);
   store().set({ status: "stopping" });
   const captured = a.capture.stop();
+  a.releaseDraw();
 
   a.stopping = (async () => {
     await captured;
