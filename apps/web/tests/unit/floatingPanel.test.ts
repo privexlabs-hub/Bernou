@@ -18,7 +18,7 @@ describe("floating panel box", () => {
   });
 
   it("starts at the top centre", () => {
-    expect(loadPanelBox(1000, 800)).toEqual({ x: 220, y: 8, width: 560, height: 260 });
+    expect(loadPanelBox(1000, 800)).toEqual({ x: 310, y: 8, width: 380, height: 200 });
   });
 
   it("comes back where it was saved, clamped to today's window", () => {
@@ -29,9 +29,9 @@ describe("floating panel box", () => {
 
   it("falls back to the default on corrupt or partly wrong storage", () => {
     localStorage.setItem("bernou-float-panel", "{not json");
-    expect(loadPanelBox(1000, 800)).toEqual({ x: 220, y: 8, width: 560, height: 260 });
+    expect(loadPanelBox(1000, 800)).toEqual({ x: 310, y: 8, width: 380, height: 200 });
     localStorage.setItem("bernou-float-panel", JSON.stringify({ x: "left", y: null, width: 300 }));
-    expect(loadPanelBox(1000, 800)).toEqual({ x: 350, y: 8, width: 300, height: 260 });
+    expect(loadPanelBox(1000, 800)).toEqual({ x: 350, y: 8, width: 300, height: 200 });
   });
 
   it("survives storage that throws", () => {
@@ -41,7 +41,7 @@ describe("floating panel box", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("blocked", "SecurityError");
     });
-    expect(loadPanelBox(1000, 800).width).toBe(560);
+    expect(loadPanelBox(1000, 800).width).toBe(380);
     expect(() => savePanelBox({ x: 0, y: 0, width: 300, height: 200 })).not.toThrow();
   });
 });

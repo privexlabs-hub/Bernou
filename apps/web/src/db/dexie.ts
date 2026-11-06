@@ -66,6 +66,11 @@ export interface TeleprompterSettings {
   mirror: boolean;
   /** Jump to the section linked to the active slide. Optional, and off unless chosen. */
   followSlides: boolean;
+  /** The floating prompter's own layout (see features/teleprompter/textLayout). */
+  floatFontSize: number;
+  floatReadingLine: number;
+  floatReadingZone: number;
+  floatAlign: "left" | "center";
 }
 
 export interface SlideRecord {
@@ -203,4 +208,9 @@ export const DEFAULT_TELEPROMPTER: TeleprompterSettings = {
   readingZone: 0.6,
   mirror: false,
   followSlides: false,
+  // As CAMERA_LAYOUT in textLayout.ts; a unit test keeps the two the same.
+  floatFontSize: 22,
+  floatReadingLine: 0.1,
+  floatReadingZone: 0.5,
+  floatAlign: "center",
 };

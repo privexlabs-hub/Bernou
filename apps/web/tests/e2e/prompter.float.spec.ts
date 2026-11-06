@@ -29,7 +29,7 @@ async function openFloat(page: Page) {
   const opened = page.context().waitForEvent("page");
   await page.getByTestId("prompter-float").click();
   const pip = await opened;
-  await pip.setViewportSize({ width: 560, height: 260 }); // what the app asks for, measured in real Chrome
+  await pip.setViewportSize({ width: 380, height: 200 }); // what the app asks for; real Chrome gave the size asked
   await expect(pip.getByTestId("float-prompter")).toBeVisible();
   return pip;
 }
@@ -64,7 +64,7 @@ test.describe("floating prompter window @nomedia", () => {
     const text = (await pip.getByTestId("prompter-viewport").boundingBox())!;
     const button = (await pip.getByTestId("float-toggle").boundingBox())!;
     expect(button.y).toBeGreaterThanOrEqual(text.y + text.height);
-    expect(text.height).toBeGreaterThan(150);
+    expect(text.height).toBeGreaterThan(200 * 0.7); // one row of controls: they fit the default width
   });
 
   test("plays there, and carries on with the main window on another tab @nomedia", async ({ page }) => {

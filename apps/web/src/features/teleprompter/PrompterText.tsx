@@ -15,10 +15,15 @@ import { useTeleprompterStore } from "@/stores/private/teleprompterStore";
 import { useScriptStore } from "@/stores/private/scriptStore";
 import { useDeckStore } from "@/stores/public/deckStore";
 import { anchorAt, positionFor, type SectionBox } from "./scrollModel";
+import { textLayout } from "./textLayout";
 import { cn } from "@/lib/utils";
 
-export function PrompterText() {
+/** `floating`: rendered in the floating prompter, which has its own layout. */
+export function PrompterText({ floating = false }: { floating?: boolean }) {
   const settings = useTeleprompterStore((s) => s.settings);
+  // Every layout value comes from here, never from `settings` directly:
+  // restoring the reading place depends on seeing the values actually in use.
+  const { fontSize, readingLine, readingZone, align } = textLayout(settings, floating);
   const model = useTeleprompterStore((s) => s.model);
   const showing = useTeleprompterStore((s) => s.visible || s.float !== null);
   const { stop, nudge, seek, setMaxPosition, setAnchor, tick } = useTeleprompterStore.getState();
@@ -56,8 +61,8 @@ export function PrompterText() {
     const vp = viewport.current;
     const last = layout.current;
     if (restoring.current) return true;
-    return !vp || !last || last.width !== vp.clientWidth || last.height !== vp.clientHeight || last.fontSize !== settings.fontSize;
-  }, [settings.fontSize]);
+    return !vp || !last || last.width !== vp.clientWidth || last.height !== vp.clientHeight || last.fontSize !== fontSize;
+  }, [fontSize]);
 
   const sectionBoxes = useCallback((): SectionBox[] => {
     const boxes: SectionBox[] = [];
@@ -76,7 +81,7 @@ export function PrompterText() {
     if (!vp || !ct) return;
     const measure = () => {
       if (layoutIsStale()) restoring.current = true;
-      layout.current = { width: vp.clientWidth, height: vp.clientHeight, fontSize: settings.fontSize };
+      layout.current = { width: vp.clientWidth, height: vp.clientHeight, fontSize: fontSize };
       setViewportHeight(vp.clientHeight);
       setMeasured((n) => n + 1);
     };
@@ -87,7 +92,7 @@ export function PrompterText() {
     ro.observe(vp);
     ro.observe(ct);
     return () => ro.disconnect();
-  }, [sections, settings.fontSize, settings.readingZone, settings.readingLine, layoutIsStale]);
+  }, [sections, fontSize, readingZone, readingLine, layoutIsStale]);
 
   // With the padding in place: the real scroll range, and the reading place put back.
   useLayoutEffect(() => {
@@ -97,11 +102,11 @@ export function PrompterText() {
     setMaxPosition(Math.max(0, ct.scrollHeight - vp.clientHeight));
     if (!restoring.current) return;
     const store = useTeleprompterStore.getState();
-    const position = positionFor(store.anchor, sectionBoxes(), vp.clientHeight * settings.readingLine);
+    const position = positionFor(store.anchor, sectionBoxes(), vp.clientHeight * readingLine);
     if (position !== null) seek(position);
     vp.scrollTop = useTeleprompterStore.getState().model.position;
     restoring.current = false;
-  }, [measured, viewportHeight, settings.readingLine, setMaxPosition, seek, sectionBoxes]);
+  }, [measured, viewportHeight, readingLine, setMaxPosition, seek, sectionBoxes]);
 
   // No text to scroll: a playing prompter would otherwise run on with Pause disabled.
   useEffect(() => {
@@ -117,8 +122,8 @@ export function PrompterText() {
 
   const readingLinePx = useCallback(() => {
     const vp = viewport.current;
-    return vp ? vp.clientHeight * settings.readingLine : 0;
-  }, [settings.readingLine]);
+    return vp ? vp.clientHeight * readingLine : 0;
+  }, [readingLine]);
 
   // Which section is under the reading line (for the indicator), and the place
   // to come back to. Only from a settled layout: old pixels on new text would
@@ -172,8 +177,8 @@ export function PrompterText() {
   );
 
   const empty = sections.length === 0;
-  const zoneTop = settings.readingLine - settings.readingZone / 2;
-  const zoneBottom = settings.readingLine + settings.readingZone / 2;
+  const zoneTop = readingLine - readingZone / 2;
+  const zoneBottom = readingLine + readingZone / 2;
   const dimStyle = useMemo(
     () => ({
       background: `linear-gradient(to bottom, ${settings.backgroundColor}e6 0%, ${settings.backgroundColor}e6 ${Math.max(0, zoneTop) * 100}%, transparent ${Math.max(0, zoneTop) * 100 + 6}%, transparent ${Math.min(1, zoneBottom) * 100 - 6}%, ${settings.backgroundColor}e6 ${Math.min(1, zoneBottom) * 100}%, ${settings.backgroundColor}e6 100%)`,
@@ -204,12 +209,12 @@ export function PrompterText() {
                 className="px-6"
                 style={{
                   // In px: percentages here would be of the width, not the height.
-                  paddingTop: viewportHeight * settings.readingLine,
-                  paddingBottom: viewportHeight * (1 - settings.readingLine),
-                  fontSize: settings.fontSize,
+                  paddingTop: viewportHeight * readingLine,
+                  paddingBottom: viewportHeight * (1 - readingLine),
+                  fontSize: fontSize,
                   lineHeight: 1.45,
                   color: settings.textColor,
-                  textAlign: settings.align,
+                  textAlign: align,
                   transform: settings.mirror ? "scaleX(-1)" : undefined,
                 }}
               >
@@ -243,7 +248,7 @@ export function PrompterText() {
             {/* Dimmed zones (pointer-events none so the text scrolls underneath) */}
             <div className="pointer-events-none absolute inset-0" style={dimStyle} aria-hidden />
             {/* Reading line */}
-            <div className="pointer-events-none absolute left-0 right-0 flex items-center" style={{ top: `${settings.readingLine * 100}%` }} aria-hidden data-testid="prompter-reading-line">
+            <div className="pointer-events-none absolute left-0 right-0 flex items-center" style={{ top: `${readingLine * 100}%` }} aria-hidden data-testid="prompter-reading-line">
               <ArrowDownToLine className="ml-1 h-3 w-3 -rotate-90 text-primary" />
               <div className="h-px flex-1 bg-primary/50" />
             </div>

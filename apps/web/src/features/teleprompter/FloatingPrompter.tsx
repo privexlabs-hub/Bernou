@@ -144,7 +144,7 @@ function FloatContent() {
   return (
     <>
       {/* The text comes first: the top of the window is nearest the camera. */}
-      <PrompterText />
+      <PrompterText floating />
       <div className="flex shrink-0 flex-wrap items-center gap-1 border-t border-border/70 bg-panel px-2 py-1">
         <FloatButton label={`${playing ? "Pause" : "Start"} (Space)`} onClick={toggle} disabled={empty} testId="float-toggle" primary>
           {playing ? <Pause /> : <Play />}

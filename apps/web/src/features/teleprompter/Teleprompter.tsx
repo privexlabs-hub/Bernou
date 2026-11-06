@@ -17,6 +17,7 @@ import { useScriptStore } from "@/stores/private/scriptStore";
 import { MAX_SPEED, MIN_SPEED, progress, remainingSeconds } from "./scrollModel";
 import { PrompterText } from "./PrompterText";
 import { closeFloat, isFloatSupported, openFloat } from "./floatingWindow";
+import { CAMERA_LAYOUT, layoutPatch, textLayout, type TextLayout } from "./textLayout";
 import { formatDuration } from "@/lib/format";
 
 export function Teleprompter() {
@@ -27,6 +28,10 @@ export function Teleprompter() {
   const [showSettings, setShowSettings] = useState(false);
   const float = useTeleprompterStore((s) => s.float);
   const [floatError, setFloatError] = useState<string | null>(null);
+  // The layout controls edit whichever place is showing the text.
+  const floating = float !== null;
+  const layout = textLayout(settings, floating);
+  const patchLayout = (p: Partial<TextLayout>) => patchSettings(layoutPatch(p, floating));
 
   const pct = progress(model);
   const remaining = remainingSeconds(model);
@@ -118,22 +123,33 @@ export function Teleprompter() {
 
       {showSettings && (
         <div className="grid gap-3 border-b border-border/70 px-3 py-3 text-xs" data-testid="prompter-settings">
-          <Row label="Font size" value={`${settings.fontSize}px`}>
-            <Slider min={16} max={72} step={1} value={[settings.fontSize]} onValueChange={([v]) => v !== undefined && patchSettings({ fontSize: v })} aria-label="Font size" data-testid="prompter-font-size" />
+          {floating && (
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold text-primary" data-testid="prompter-layout-heading">
+                Floating window
+              </span>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={() => patchSettings({ ...CAMERA_LAYOUT })} data-testid="prompter-layout-reset">
+                Reset to camera layout
+              </Button>
+            </div>
+          )}
+          <Row label="Font size" value={`${layout.fontSize}px`}>
+            <Slider min={16} max={72} step={1} value={[layout.fontSize]} onValueChange={([v]) => v !== undefined && patchLayout({ fontSize: v })} aria-label="Font size" data-testid="prompter-font-size" />
           </Row>
           <Row label="Speed" value={`${settings.speed} px/s`}>
             <Slider min={MIN_SPEED} max={MAX_SPEED} step={1} value={[settings.speed]} onValueChange={([v]) => v !== undefined && patchSettings({ speed: v })} aria-label="Scroll speed" data-testid="prompter-speed-slider" />
           </Row>
-          <Row label="Reading line" value={`${Math.round(settings.readingLine * 100)}%`}>
-            <Slider min={10} max={90} step={1} value={[Math.round(settings.readingLine * 100)]} onValueChange={([v]) => v !== undefined && patchSettings({ readingLine: v / 100 })} aria-label="Reading line position" />
+          <Row label="Reading line" value={`${Math.round(layout.readingLine * 100)}%`}>
+            <Slider min={10} max={90} step={1} value={[Math.round(layout.readingLine * 100)]} onValueChange={([v]) => v !== undefined && patchLayout({ readingLine: v / 100 })} aria-label="Reading line position" />
           </Row>
-          <Row label="Reading zone" value={`${Math.round(settings.readingZone * 100)}%`}>
-            <Slider min={10} max={100} step={1} value={[Math.round(settings.readingZone * 100)]} onValueChange={([v]) => v !== undefined && patchSettings({ readingZone: v / 100 })} aria-label="Reading zone height" />
+          <Row label="Reading zone" value={`${Math.round(layout.readingZone * 100)}%`}>
+            <Slider min={10} max={100} step={1} value={[Math.round(layout.readingZone * 100)]} onValueChange={([v]) => v !== undefined && patchLayout({ readingZone: v / 100 })} aria-label="Reading zone height" />
           </Row>
+          {floating && <p className="-mt-1 text-[11px] text-muted-foreground">Speed, colours, Follow slides and Mirror are shared with the Prompter tab.</p>}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label>Alignment</Label>
-              <Tabs value={settings.align} onValueChange={(v) => patchSettings({ align: v as "left" | "center" })}>
+              <Tabs value={layout.align} onValueChange={(v) => patchLayout({ align: v as "left" | "center" })}>
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="left">Left</TabsTrigger>
                   <TabsTrigger value="center">Centre</TabsTrigger>
@@ -180,6 +196,7 @@ export function Teleprompter() {
       {float ? (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-xs text-muted-foreground" data-testid="prompter-floating-notice">
           <p>The text is in the floating window. These controls and settings still apply to it.</p>
+          <p>Drag it right under your camera, and keep it narrow: the closer the words are to the lens, the more you look at your viewers.</p>
           <Button size="sm" variant="secondary" onClick={closeFloat} data-testid="prompter-bring-back">
             Bring back
           </Button>

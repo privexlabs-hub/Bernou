@@ -13,8 +13,9 @@ interface DocumentPictureInPicture {
   requestWindow(options: { width: number; height: number }): Promise<Window>;
 }
 
-const WINDOW_WIDTH = 560;
-const WINDOW_HEIGHT = 260;
+// Small, so the words stay close to the camera and the eyes sweep less.
+const WINDOW_WIDTH = 380;
+const WINDOW_HEIGHT = 200;
 
 function pictureInPicture(): DocumentPictureInPicture | null {
   return (window as unknown as { documentPictureInPicture?: DocumentPictureInPicture }).documentPictureInPicture ?? null;
