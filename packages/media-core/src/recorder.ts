@@ -5,6 +5,7 @@
  */
 export * from "./recorderStorage";
 export * from "./recorderWebm";
+export * from "./recorderMp4";
 
 export interface RecordingFormat {
   mimeType: string;

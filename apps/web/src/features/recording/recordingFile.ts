@@ -1,5 +1,5 @@
 /** Turns a finished recording into a file the presenter can keep. */
-import { patchWebmDuration, readRecordingFile } from "@bernou/media-core/recorder";
+import { fixMp4FragmentGaps, patchWebmDuration, readRecordingFile } from "@bernou/media-core/recorder";
 import type { RecordingRecord } from "@/db/dexie";
 import { updateRecording } from "@/db/repositories/recordings";
 
@@ -16,6 +16,12 @@ export function recordingFileName(title: string, createdAt: number, extension: s
 export async function recordingBlob(rec: RecordingRecord): Promise<Blob | null> {
   const file = await readRecordingFile(rec.opfsPath);
   if (!file) return null;
+  // Chrome places MP4 fragments by their start times, other players by adding up
+  // durations: without this, QuickTime drifts out of sync (16 s over 10 minutes).
+  if (rec.extension === "mp4") {
+    const fixed = await fixMp4FragmentGaps(file);
+    return new Blob([fixed?.blob ?? file], { type: rec.mime });
+  }
   if (rec.extension !== "webm" || rec.durationMs <= 0) return new Blob([file], { type: rec.mime });
   const head = new Uint8Array(await file.slice(0, WEBM_HEAD_BYTES).arrayBuffer());
   const patch = patchWebmDuration(head, rec.durationMs);

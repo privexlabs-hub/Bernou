@@ -1,7 +1,7 @@
 import { expect, test, type Download, type Page } from "@playwright/test";
 import { fileURLToPath, URL } from "node:url";
 import { createSessionViaUi } from "./helpers";
-import { audioStats, countVideoFrames, toneLevels, fileInfo, loadRecording, pixelAt, regionChecksum, seekTimes, silenceStart } from "./recordingProbe";
+import { audioStats, countVideoFrames, fragmentTimingErrors, toneLevels, fileInfo, loadRecording, pixelAt, regionChecksum, seekTimes, silenceStart } from "./recordingProbe";
 
 const deck = fileURLToPath(new URL("../../../../fixtures/decks/lecture-20.pdf", import.meta.url));
 const SCRIPT_CANARY = "CANARY-SCRIPT-REC-41";
@@ -558,4 +558,23 @@ test("the app's mic has the browser's noise suppression, echo cancellation and g
   });
   expect(settings).toHaveLength(1);
   expect(settings[0]).toMatchObject({ echoCancellation: true, noiseSuppression: true, autoGainControl: true });
+});
+
+/**
+ * Chrome writes MP4 in fragments whose last samples don't add up to where the
+ * next fragment starts. Chrome places fragments by their start time; QuickTime
+ * adds up durations, and drifted 16 s on a 10-minute recording. The download
+ * must add up exactly.
+ */
+test("a downloaded MP4's frame durations add up to its real timeline, so QuickTime stays in sync", async ({ page }) => {
+  await studio(page);
+  await page.getByTestId("camera-toggle").click();
+  await micOn(page);
+  await startRecording(page);
+  await page.waitForTimeout(7000); // several fragments
+  const dl = await stopAndDownload(page);
+  const bytes = await loadRecording(page, dl);
+  test.skip(bytes.subarray(4, 8).toString("latin1") !== "ftyp", "this browser recorded WebM");
+  expect(countVideoFrames(bytes)).toBeGreaterThan(30);
+  expect(fragmentTimingErrors(bytes)).toBe(0);
 });
