@@ -28,3 +28,19 @@ test("presenter page never executes audience bootstrap, and vice versa @nomedia"
   expect(audienceLoaded.some((f) => /^presenter-/.test(f))).toBe(false);
   expect(await audience.locator("body").innerText()).toBe("");
 });
+
+/** The editor's media libraries (several MB) load only when the editor is opened. @nomedia */
+test("the dashboard, studio and audience window don't load the editor or its libraries @nomedia", async ({ page }) => {
+  const loaded: string[] = [];
+  const track = (p: typeof page) => p.on("response", (r) => r.url().includes("/assets/") && loaded.push(r.url().split("/assets/")[1]!));
+  track(page);
+  await page.goto("/");
+  await page.getByTestId("new-presentation").click();
+  await expect(page.getByTestId("studio")).toBeVisible();
+  await page.waitForTimeout(500);
+  const audience = await page.context().newPage();
+  track(audience);
+  await audience.goto("/audience.html");
+  await expect(audience.locator("canvas")).toHaveCount(1);
+  expect(loaded.filter((f) => /^(EditorPage|exportWorker|workletProcessor|rnnoise)/.test(f))).toEqual([]);
+});
