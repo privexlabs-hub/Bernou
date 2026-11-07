@@ -33,7 +33,7 @@ describe("upgrading an existing database", () => {
     await createV1(NAME);
     const db = new BernouDB(NAME);
     await db.open();
-    expect(db.verno).toBe(2);
+    expect(db.verno).toBe(3); // the current version: 3 added edit projects
     expect(await db.sessions.get("s1")).toMatchObject({ title: "Old talk" });
     expect(await db.slides.count()).toBe(1);
     expect((await db.scripts.get("s1"))?.sections[0]?.body).toBe("Hello");
