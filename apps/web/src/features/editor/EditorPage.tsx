@@ -18,7 +18,7 @@ import { isEditableTarget } from "@/features/slides/useSlideShortcuts";
 import { addOverlay, deleteOverlay, muteSection, newHighlight, newText, removeSection } from "./edits";
 import { newEditProject } from "./project";
 import { layout as computeLayout, toOutput } from "./timeline";
-import { EditorWorker } from "./export/client";
+import { useEditorWorker, WorkerClosed } from "./export/client";
 import { outputDir, TEMP_DIR, type SourceInfo } from "./export/protocol";
 import { PreviewPlayer } from "./player";
 import { Preview } from "./Preview";
@@ -35,7 +35,7 @@ export function EditorPage() {
   const { id } = useParams<{ id: string }>();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const worker = useMemo(() => new EditorWorker(), []);
+  const worker = useEditorWorker();
   const video = useRef<HTMLVideoElement>(null);
   const player = useRef<PreviewPlayer | null>(null);
   const [exporting, setExporting] = useState<null | "video" | "audio">(null);
@@ -44,10 +44,9 @@ export function EditorPage() {
   const { change, undo, redo, canUndo, canRedo } = useEditorStore();
   const ui = useEditorUi();
 
-  useEffect(() => () => worker.dispose(), [worker]);
-
   // Load the recording, read it once, and open or start its project.
   useEffect(() => {
+    if (!worker) return;
     let cancelled = false;
     useEditorUi.getState().reset();
     // Temporary files from an earlier visit (a closed tab mid-preview) aren't needed.
@@ -66,6 +65,7 @@ export function EditorPage() {
       try {
         info = await worker.probe(source);
       } catch (e) {
+        if (cancelled || e instanceof WorkerClosed) return;
         return setError(`This recording can't be opened for editing (${(e as Error).message}).`);
       }
       if (cancelled) return;
@@ -75,12 +75,17 @@ export function EditorPage() {
       const url = URL.createObjectURL(source);
       setLoaded({ rec, source, url, info, peaks: null });
       if (info.hasAudio) {
-        const a = await worker.decodeAudio(source, PEAKS_PER_SECOND);
-        if (cancelled) return;
+        const a = await worker.decodeAudio(source, PEAKS_PER_SECOND).catch((e) => {
+          if (e instanceof WorkerClosed) return null;
+          throw e;
+        });
+        if (cancelled || !a) return;
         player.current?.setAudio(a.samples, a.sampleRate);
         setLoaded((l) => (l ? { ...l, peaks: a.peaks } : l));
       }
-    })();
+    })().catch((e) => {
+      if (!cancelled && !(e instanceof WorkerClosed)) setError(`This recording can't be opened for editing (${(e as Error).message}).`);
+    });
     return () => {
       cancelled = true;
       useEditorStore.getState().close();
@@ -208,7 +213,7 @@ export function EditorPage() {
   }, [togglePlay, undo, redo, duration, act, change]);
 
   const previewJoin = async (i: number) => {
-    if (!l || !loaded || !project) return;
+    if (!l || !loaded || !project || !worker) return;
     const at = l.segments[i + 1]!.outStart;
     setJoinPreview({ busy: true });
     try {
@@ -235,7 +240,7 @@ export function EditorPage() {
         <Link to="/" className="text-sm text-primary hover:underline">Back to dashboard</Link>
       </main>
     );
-  if (!loaded || !project || !l) return <main className="flex h-full items-center justify-center text-sm text-muted-foreground" data-testid="editor-loading">Opening the recording…</main>;
+  if (!loaded || !project || !l || !worker) return <main className="flex h-full items-center justify-center text-sm text-muted-foreground" data-testid="editor-loading">Opening the recording…</main>;
 
   const nothingLeft = l.duration <= 0;
   return (

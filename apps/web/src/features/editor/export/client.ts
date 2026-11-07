@@ -1,4 +1,5 @@
 /** The editor page's side of the export Worker. */
+import { useEffect, useState } from "react";
 import type { EditProject } from "@/db/dexie";
 import type { ExportResult, FromWorker, OutputDir, SourceInfo, ToWorker } from "./protocol";
 
@@ -54,7 +55,32 @@ export class EditorWorker {
 
   dispose() {
     this.worker.terminate();
-    for (const p of this.pending.values()) p.reject(new Error("closed"));
+    for (const p of this.pending.values()) p.reject(new WorkerClosed());
     this.pending.clear();
   }
+}
+
+/** A request that never finished because the page closed its worker: not a failure to report. */
+export class WorkerClosed extends Error {
+  constructor() {
+    super("closed");
+  }
+}
+
+/**
+ * One worker for the time the editor is open, made and ended by the same effect.
+ * (Made once outside it, StrictMode's practice unmount in development ended the
+ * worker the page went on to use, and the editor never finished opening.)
+ */
+export function useEditorWorker(): EditorWorker | null {
+  const [worker, setWorker] = useState<EditorWorker | null>(null);
+  useEffect(() => {
+    const w = new EditorWorker();
+    setWorker(w);
+    return () => {
+      w.dispose();
+      setWorker((current) => (current === w ? null : current));
+    };
+  }, []);
+  return worker;
 }
