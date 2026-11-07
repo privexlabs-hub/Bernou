@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Download, Film, FileText, Plus, Settings, Trash2, Upload } from "lucide-react";
+import { Download, Film, FileText, Plus, Scissors, Settings, Trash2, Upload } from "lucide-react";
 import { Button } from "@/ui/button";
 import { TooltipProvider } from "@/ui/tooltip";
 import { db, type RecordingRecord } from "@/db/dexie";
@@ -220,6 +220,7 @@ function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
 }
 
 function RecordingRow({ recording: r }: { recording: RecordingRecord }) {
+  const navigate = useNavigate();
   const [missing, setMissing] = useState(false);
   const inProgress = r.status === "recording";
   return (
@@ -234,6 +235,10 @@ function RecordingRow({ recording: r }: { recording: RecordingRecord }) {
       <span className="shrink-0 text-xs text-muted-foreground">
         {formatDuration(r.durationMs)} · {formatBytes(r.bytes)} · .{r.extension}
       </span>
+      {r.editedFrom && <span className="shrink-0 rounded border border-border px-1 text-[10px] text-muted-foreground">Edited</span>}
+      <Button variant="ghost" size="icon-sm" disabled={inProgress} aria-label={`Edit ${r.title}`} title="Edit" data-testid="recording-row-edit" onClick={() => navigate(`/recordings/${r.id}/edit`)}>
+        <Scissors />
+      </Button>
       <Button variant="ghost" size="icon-sm" disabled={inProgress} aria-label={`Download ${r.title}`} data-testid="recording-row-download" onClick={() => void downloadRecording(r).then((ok) => setMissing(!ok))}>
         <Download />
       </Button>

@@ -117,6 +117,28 @@ describe("editor store: undo and redo", () => {
     expect(steps).toBe(100);
   });
 
+  it("a run of changes from one control (a slider drag, typing) is one step", () => {
+    for (let v = 1; v <= 30; v++) s().change((p) => ({ ...p, picture: { ...p.picture, brightness: v } }), "brightness");
+    expect(s().project!.picture.brightness).toBe(30);
+    s().undo();
+    expect(s().project!.picture.brightness).toBe(0);
+    expect(s().canUndo()).toBe(false);
+  });
+
+  it("another control, or a change without a key, starts a new step", () => {
+    s().change((p) => ({ ...p, picture: { ...p.picture, brightness: 5 } }), "brightness");
+    s().change((p) => ({ ...p, picture: { ...p.picture, contrast: 5 } }), "contrast");
+    s().change((p) => ({ ...p, picture: { ...p.picture, contrast: 9 } }), "contrast");
+    s().change((p) => ({ ...p, smoothJoins: true }));
+    s().change((p) => ({ ...p, picture: { ...p.picture, brightness: 7 } }), "brightness");
+    let steps = 0;
+    while (s().canUndo()) {
+      s().undo();
+      steps++;
+    }
+    expect(steps).toBe(4);
+  });
+
   it("loading another project clears the history", () => {
     s().change((p) => ({ ...p, smoothJoins: true }));
     s().load(newEditProject({ ...rec, id: "r2" }));
