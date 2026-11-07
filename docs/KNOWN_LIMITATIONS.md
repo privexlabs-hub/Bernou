@@ -48,7 +48,8 @@ Maintained per the spec (§14): nothing is marked complete unless implemented an
 | Branding title/logo | ⚠️ | Engine supports it; **no UI yet** to set the audience-visible title (planned with Stage THIRD polish). Logo assets not wired. |
 | Panel collapse/resize | ✅ | `react-resizable-panels`, sizes persisted in localStorage |
 | Recording and download | ✅ Chrome · ✅ Firefox smoke test · ❓ Safari untested | Audience composition plus microphone only; other meeting participants aren't recorded. MP4, else WebM. See below. `recording.spec` |
-| Compression, trimming, export options | ⏳ | Not started |
+| Editor | ✅ Chrome · ✅ Firefox smoke test (WebM) · ❓ Safari untested | `/recordings/:id/edit`. Covers:<br>• trim, remove sections, smooth joins (0.5 s crossfade)<br>• volume, mute sections, background-noise removal (RNNoise, local, with strength), audio-only WAV<br>• text and highlight overlays<br>• brightness, contrast and saturation<br>• undo and redo, autosave<br><br>Never writes to the original. Export is a new recording: MP4 (H.264/AAC), or WebM (VP9/Opus) where the browser can't encode AAC, such as Firefox. See below. `editor.spec`, `editor.firefox.spec` |
+| Compression, other export resolutions | ⏳ | Not started |
 | Browser-content capture | ⏳ | Stage FOURTH — always needs the browser's own picker |
 | Voice-following teleprompter | ⏳ | Stage FOURTH — opt-in, on-device only |
 | Native virtual camera | ❌ | Not possible in a browser. Stage FOURTH desktop build. Interim: OBS Virtual Camera with the audience window as a source. |
@@ -99,6 +100,25 @@ On Chrome 156, driving Chrome directly (not Playwright's focus emulation), one I
 - **Not measured:** keyboard focus right after it opens (automation reported both windows as focused); Chrome over macOS full-screen spaces; a real presentation clicker; the recording frame rate with it open on a quiet machine (the machine was heavily loaded, and the readings were meaningless).
 - **Two unexplained readings** in an early run, with the window visible on a desktop in use: the speed fell 40→25, and the text went backwards for 5 s. Neither recurred in three later runs that logged every input event (only the test's own clicks and keys arrived). Outside input reaching the visible test window is the likely cause, not proven.
 - **Fixed alongside:** the Stop all shortcut did nothing while the prompter's text had focus, because the prompter swallowed the key. It now ignores keys with Ctrl, ⌘ or Alt.
+
+### Editor: what was measured and its limits
+
+Chrome 156 on the Intel i7 Mac:
+
+| Case | Result |
+|---|---|
+| Full export of a real 10-minute recording, with picture filter and a text overlay | 190 s (98 fps, about 3.3× real time). AVFoundation read video 620.50 s and audio 620.52 s, so QuickTime stays in sync. Peak memory of the whole browser 1.3 GB |
+| Cut accuracy | Frames either side of each cut are the right ones to within 60 ms, including a cut starting inside a frame hold in the original |
+| Sync across joins | Each flash-to-click offset matches the original's to within one frame (33 ms) |
+| Noise removal, speech with steady noise | Noise between phrases −30.9 dB → silence; speech level within 0.5 dB |
+| Volume −6 dB | Measured −6 ± 0.5 dB |
+
+- **Output runs at a steady 30 fps.** Each output frame shows the original frame on screen at that moment, so frame holds in the original are kept, not squeezed out.
+- **The preview's picture jumps at cuts** and may hold a frame there. Its sound is the exact edit, including fades, mutes, volume and noise removal. A smooth join's picture blend can only be seen by rendering it: Cuts → **Preview join** renders that join exactly.
+- **With noise removal on, the preview's sound is about 33 ms behind its picture** (the live model's delay). The export takes that delay back out, measured at exactly 960 samples.
+- **Noise removal can thin a voice.** It's off by default; listen before exporting, and lower the strength if needed. It needs 48 kHz audio (Bernou's recordings are), and says so otherwise.
+- **The export worker is 5.4 MB, mostly the speech model.** It loads only when the editor opens, never in the studio, dashboard or audience window (`privacy.bundle.spec`).
+- **Safari:** untested. Playwright's WebKit reports the encoders, but its import of slides fails (see Test environment note), so it couldn't be exercised end to end.
 
 ### Audience window sharpness
 
