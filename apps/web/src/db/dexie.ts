@@ -154,6 +154,26 @@ export interface HighlightOverlay extends OverlayBase {
 }
 export type Overlay = TextOverlay | HighlightOverlay;
 
+/** An imported audio file on the edited video's timeline. Its file is in OPFS `editor-audio/<assetId>`. */
+export interface AddedTrack {
+  id: string;
+  assetId: string;
+  name: string;
+  /** Output-timeline seconds where it starts. */
+  start: number;
+  /** Seconds into the file where it starts, and how much of the file plays per pass. */
+  trimIn: number;
+  length: number;
+  volumeDb: number;
+  fadeIn: number;
+  fadeOut: number;
+  loop: boolean;
+  /** Dips while someone speaks. */
+  duck: boolean;
+  /** A voice: makes music that's set to dip go down. */
+  voice: boolean;
+}
+
 /**
  * A recording's edits. Nothing here changes the original: export renders a new
  * file from the original plus this. All times are in the original's seconds.
@@ -165,7 +185,18 @@ export interface EditProject {
   trim: TimeRange;
   cuts: TimeRange[];
   smoothJoins: boolean;
-  audio: { volumeDb: number; mutes: TimeRange[]; denoise: { on: boolean; strength: number } };
+  audio: {
+    /** The recording's own sound. */
+    volumeDb: number;
+    mutes: TimeRange[];
+    denoise: { on: boolean; strength: number };
+    /** Off: the export has none of the recording's sound. Offset: + plays it later against the picture. */
+    original: { on: boolean; offsetMs: number };
+    /** Imported audio, placed on the edited video's timeline. */
+    tracks: AddedTrack[];
+    /** How far music set to dip goes down while someone speaks. */
+    ducking: { depthDb: number };
+  };
   /** -50..50 each; 0 is unchanged. */
   picture: { brightness: number; contrast: number; saturation: number };
   overlays: Overlay[];

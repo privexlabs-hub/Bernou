@@ -23,6 +23,11 @@ export interface TimelineInput {
 
 /** Length of a smooth join, at most. */
 export const CROSSFADE_S = 0.5;
+/**
+ * A join is only smoothed where at least this much was removed. A 0.5 s
+ * crossfade at a 3 ms cut, or at a removed pause, would eat into the speech.
+ */
+export const MIN_SMOOTH_CUT_S = 1;
 
 export interface Segment extends Range {
   /** Where this segment starts in the output. */
@@ -78,7 +83,8 @@ export function layout(input: TimelineInput): Layout {
   kept.forEach((r, i) => {
     if (i > 0) {
       const prev = kept[i - 1]!;
-      const crossfade = input.smoothJoins ? Math.min(CROSSFADE_S, (prev.end - prev.start) / 2, (r.end - r.start) / 2) : 0;
+      const removed = r.start - prev.end;
+      const crossfade = input.smoothJoins && removed >= MIN_SMOOTH_CUT_S - 1e-9 ? Math.min(CROSSFADE_S, (prev.end - prev.start) / 2, (r.end - r.start) / 2) : 0;
       joins.push({ crossfade });
       out -= crossfade;
     }

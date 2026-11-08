@@ -13,8 +13,11 @@
 import type { EditProject } from "@/db/dexie";
 import { CROSSFADE_S, normalizeRanges, type Layout } from "./timeline";
 
-/** Fade at every hard cut and at mute edges: long enough to remove the click, too short to hear. */
-export const EDGE_FADE_S = 0.01;
+/**
+ * Fade at every hard cut and at mute edges: long enough to remove the click,
+ * short enough not to be heard even around a cut of a millisecond.
+ */
+export const EDGE_FADE_S = 0.003;
 
 /** Processes a frame in place, values in -1..1. Its output lags its input by `delay` samples. */
 export interface Denoiser {
@@ -29,6 +32,8 @@ export interface AudioRendererOptions {
   layout: Layout;
   project: Pick<EditProject, "audio">;
   denoiser?: (() => Denoiser) | undefined;
+  /** Clamp to full scale here. Off when a mixer adds more afterwards and clamps once itself. */
+  clamp?: boolean;
   /** Finished audio, in order, with its start time on the output timeline (seconds). */
   onOutput: (planes: Float32Array[], timestamp: number) => void;
 }
@@ -85,6 +90,7 @@ export class AudioRenderer {
   private emitted = 0;
   private outQueue: Queue[] = [];
   private readonly onOutput: AudioRendererOptions["onOutput"];
+  private readonly clamp: boolean;
 
   constructor(o: AudioRendererOptions) {
     this.rate = o.sampleRate;
@@ -98,6 +104,7 @@ export class AudioRenderer {
     const { on, strength } = o.project.audio.denoise;
     this.strength = on && o.denoiser ? Math.min(1, Math.max(0, strength)) : 0;
     this.onOutput = o.onOutput;
+    this.clamp = o.clamp ?? true;
     for (let c = 0; c < this.channels; c++) {
       this.dry.push(new Queue());
       this.wet.push(new Queue());
@@ -223,7 +230,7 @@ export class AudioRenderer {
     if (n <= 0) return;
     const planes = this.outQueue.map((q) => {
       const p = q.take(n);
-      for (let i = 0; i < p.length; i++) p[i] = Math.max(-1, Math.min(1, p[i]! * this.gain));
+      for (let i = 0; i < p.length; i++) p[i] = this.clamp ? Math.max(-1, Math.min(1, p[i]! * this.gain)) : p[i]! * this.gain;
       return p;
     });
     this.onOutput(planes, this.emitted / this.rate);

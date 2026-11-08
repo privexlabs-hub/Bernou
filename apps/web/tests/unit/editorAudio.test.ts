@@ -52,11 +52,25 @@ describe("audio render", () => {
     expect(at(out, 2 + EDGE_FADE_S + 0.002)).toBeCloseTo(0.25, 6);
   });
 
-  it("no sample jumps by more than the fade allows at a hard join", () => {
+  it("the cut fade is 3 ms: short enough not to be heard around a tiny cut", () => {
+    expect(EDGE_FADE_S).toBe(0.003);
+  });
+
+  it("no sample jumps by more than a 3-sample ramp allows at a hard join", () => {
     const { out } = render({ ...newEditProject(rec), cuts: [{ start: 2, end: 4 }] }, { value: (t) => (t < 2 ? 0.9 : -0.9) });
     let worst = 0;
     for (let i = 1; i < out.length; i++) worst = Math.max(worst, Math.abs(out[i]! - out[i - 1]!));
-    expect(worst).toBeLessThanOrEqual(0.9 / (EDGE_FADE_S * RATE) + 1e-6);
+    // A fixed number, not derived from EDGE_FADE_S: 3 ms at this rate is 3 samples, so 0.9 / 3.
+    expect(worst).toBeLessThanOrEqual(0.3 + 1e-6);
+  });
+
+  it("without its clamp, loud sound passes through for the mixer to clamp once", () => {
+    const l = layout({ duration: 10, trim: { start: 0, end: 10 }, cuts: [], smoothJoins: false });
+    const out: number[] = [];
+    const r = new AudioRenderer({ sampleRate: RATE, channels: 1, layout: l, project: { ...newEditProject(rec), audio: { ...newEditProject(rec).audio, volumeDb: 12 } }, clamp: false, onOutput: (p) => out.push(...p[0]!) });
+    r.push(0, 0, [new Float32Array(10 * RATE).fill(0.5)]);
+    r.finish();
+    expect(out[5 * RATE]).toBeCloseTo(0.5 * 10 ** (12 / 20), 5);
   });
 
   it("a smooth join mixes both sides, with weights that add up to one", () => {
@@ -70,7 +84,8 @@ describe("audio render", () => {
   it("a muted section is silent, with short ramps just outside it, and the rest unchanged", () => {
     const { out } = render({ ...newEditProject(rec), audio: { ...newEditProject(rec).audio, mutes: [{ start: 3, end: 5 }] } });
     for (let t = 3; t < 5; t += 0.05) expect(at(out, t)).toBe(0);
-    expect(at(out, 3 - EDGE_FADE_S / 2)).toBeCloseTo(0.25, 2);
+    // 2 ms before the mute, on an exact sample: the ramp is 2/3 of the way back up.
+    expect(at(out, 3 - 0.002)).toBeCloseTo(0.5 * (0.002 / EDGE_FADE_S), 6);
     expect(at(out, 2)).toBeCloseTo(0.5, 6);
     expect(at(out, 6)).toBeCloseTo(0.5, 6);
   });

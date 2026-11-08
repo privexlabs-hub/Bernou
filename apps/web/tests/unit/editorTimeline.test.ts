@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CROSSFADE_S, keptSegments, layout, normalizeRanges, sourcesAt, toOutput } from "@/features/editor/timeline";
+import { CROSSFADE_S, keptSegments, layout, MIN_SMOOTH_CUT_S, normalizeRanges, sourcesAt, toOutput } from "@/features/editor/timeline";
 
 const base = { duration: 10, trim: { start: 0, end: 10 }, cuts: [], smoothJoins: false };
 
@@ -74,6 +74,17 @@ describe("output timeline", () => {
     // Outside it, one side only.
     expect(sourcesAt(l, 0.5)).toEqual([{ t: 0.5, weight: 1 }]);
     expect(sourcesAt(l, 5)).toHaveLength(1);
+  });
+
+  it("a smooth join only where at least a second was removed: tiny cuts and short silences stay hard", () => {
+    expect(MIN_SMOOTH_CUT_S).toBe(1);
+    const tiny = layout({ ...base, cuts: [{ start: 2, end: 2.003 }], smoothJoins: true });
+    expect(tiny.joins[0]!.crossfade).toBe(0);
+    expect(tiny.duration).toBeCloseTo(10 - 0.003, 9);
+    const pause = layout({ ...base, cuts: [{ start: 2, end: 2.6 }], smoothJoins: true });
+    expect(pause.joins[0]!.crossfade).toBe(0);
+    const real = layout({ ...base, cuts: [{ start: 2, end: 3 }], smoothJoins: true });
+    expect(real.joins[0]!.crossfade).toBeCloseTo(CROSSFADE_S, 9);
   });
 
   it("a crossfade is never longer than half of either side", () => {

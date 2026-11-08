@@ -54,7 +54,7 @@ describe("edit projects", () => {
   it("a new project keeps the whole recording, with neutral settings", () => {
     const p = newEditProject(rec);
     expect(p).toMatchObject({ id: "r1", trim: { start: 0, end: 10 }, cuts: [], smoothJoins: false, overlays: [] });
-    expect(p.audio).toEqual({ volumeDb: 0, mutes: [], denoise: { on: false, strength: 1 } });
+    expect(p.audio).toEqual({ volumeDb: 0, mutes: [], denoise: { on: false, strength: 1 }, original: { on: true, offsetMs: 0 }, tracks: [], ducking: { depthDb: -12 } });
     expect(p.picture).toEqual({ brightness: 0, contrast: 0, saturation: 0 });
   });
 
@@ -143,5 +143,20 @@ describe("editor store: undo and redo", () => {
     s().change((p) => ({ ...p, smoothJoins: true }));
     s().load(newEditProject({ ...rec, id: "r2" }));
     expect(s().canUndo()).toBe(false);
+  });
+});
+
+describe("projects saved before audio tracks existed", () => {
+  it("open with the recording's sound on, unshifted, no tracks, and the default dip", async () => {
+    const { normalizeProject } = await import("@/features/editor/project");
+    const old = { ...newEditProject(rec), audio: { volumeDb: -3, mutes: [{ start: 1, end: 2 }], denoise: { on: true, strength: 0.5 } } } as never;
+    const p = normalizeProject(old);
+    expect(p.audio).toMatchObject({ volumeDb: -3, mutes: [{ start: 1, end: 2 }], denoise: { on: true, strength: 0.5 }, original: { on: true, offsetMs: 0 }, tracks: [], ducking: { depthDb: -12 } });
+  });
+
+  it("a current project comes back unchanged", async () => {
+    const { normalizeProject } = await import("@/features/editor/project");
+    const p = newEditProject(rec);
+    expect(normalizeProject(p)).toEqual(p);
   });
 });
