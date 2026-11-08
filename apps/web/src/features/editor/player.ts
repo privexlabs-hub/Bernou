@@ -14,6 +14,13 @@ import rnnoiseSimd from "@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url"
 import type { EditProject } from "@/db/dexie";
 import { EDGE_FADE_S } from "./audioRender";
 import { normalizeRanges, sourcesAt, type Layout } from "./timeline";
+import { ENVELOPE_RATE } from "./ducking";
+
+/** What the preview needs beyond the project: decoded added audio and the music dip. */
+export interface PlayExtras {
+  trackBuffer: (assetId: string) => AudioBuffer | null;
+  envelope: Float32Array | null;
+}
 
 /** The live worklet's delay: its 1,920-sample ring reads 640 behind, plus the model's 960. */
 const WORKLET_DELAY_SAMPLES = 640 + 960;
@@ -44,6 +51,11 @@ export class PreviewPlayer {
     this.buffer = b;
   }
 
+  /** The decoded recording sound, mono, without a copy: for the waveform and silence finding. */
+  originalSamples(): { samples: Float32Array; rate: number } | null {
+    return this.buffer ? { samples: this.buffer.getChannelData(0), rate: this.buffer.sampleRate } : null;
+  }
+
   /** Where the picture should be at an output time: the side that dominates a join. */
   private sourceFor(l: Layout, out: number): number | null {
     const s = sourcesAt(l, out);
@@ -60,7 +72,7 @@ export class PreviewPlayer {
     this.onTime(out, t);
   }
 
-  async play(l: Layout, project: EditProject, fromOut: number) {
+  async play(l: Layout, project: EditProject, fromOut: number, extras: PlayExtras = { trackBuffer: () => null, envelope: null }) {
     this.stop();
     if (!this.ctx) this.ctx = new AudioContext();
     await this.ctx.resume();
@@ -69,7 +81,7 @@ export class PreviewPlayer {
     const t0 = ctx.currentTime + 0.12; // time to set up, so nothing starts in the past
     this.startCtx = t0;
     this.startOut = fromOut;
-    if (this.buffer) await this.scheduleAudio(ctx, l, project, fromOut, t0);
+    await this.scheduleAudio(ctx, l, project, fromOut, t0, extras);
     this.playing = true;
     this.video.muted = true;
     const first = this.sourceFor(l, fromOut);
@@ -93,11 +105,12 @@ export class PreviewPlayer {
     this.raf = requestAnimationFrame(tick);
   }
 
-  private async scheduleAudio(ctx: AudioContext, l: Layout, project: EditProject, fromOut: number, t0: number) {
+  private async scheduleAudio(ctx: AudioContext, l: Layout, project: EditProject, fromOut: number, t0: number, extras: PlayExtras) {
     const bus = ctx.createGain();
     const volume = ctx.createGain();
     volume.gain.value = 10 ** (project.audio.volumeDb / 20);
     const cleanup: (() => void)[] = [];
+    const cleanupNodes: AudioNode[] = [];
     const { on, strength } = project.audio.denoise;
     if (on && strength > 0) {
       this.wasm ??= loadRnnoise({ url: rnnoiseWasm, simdUrl: rnnoiseSimd }).then(async (w) => {
@@ -121,19 +134,23 @@ export class PreviewPlayer {
 
     const mutes = normalizeRanges(project.audio.mutes, Infinity);
     const at = (out: number) => t0 + (out - fromOut);
-    l.segments.forEach((seg, i) => {
+    // The recording's own sound: off, or read shifted by its offset (sound time = picture time − offset).
+    const offset = project.audio.original.offsetMs / 1000;
+    const original = project.audio.original.on ? this.buffer : null;
+    if (original) l.segments.forEach((seg, i) => {
       const len = seg.end - seg.start;
       const outEnd = seg.outStart + len;
       if (outEnd <= fromOut) return;
       const skip = Math.max(0, fromOut - seg.outStart);
       const src = ctx.createBufferSource();
-      src.buffer = this.buffer;
+      src.buffer = original;
       const edges = ctx.createGain();
       const muteGain = ctx.createGain();
       src.connect(edges).connect(muteGain).connect(bus);
       // Into and out of the segment: a crossfade at smooth joins, else the short fade.
-      const inF = l.joins[i - 1]?.crossfade || EDGE_FADE_S;
-      const outF = l.joins[i]?.crossfade || EDGE_FADE_S;
+      // Never more than half the segment each, or the two ramps' events would overlap.
+      const inF = Math.min(l.joins[i - 1]?.crossfade || EDGE_FADE_S, len / 2);
+      const outF = Math.min(l.joins[i]?.crossfade || EDGE_FADE_S, len / 2);
       const g = edges.gain;
       g.setValueAtTime(skip > 0 ? Math.min(1, skip / inF) : 0, at(seg.outStart + skip));
       if (skip < inF) g.linearRampToValueAtTime(1, at(seg.outStart + inF));
@@ -153,13 +170,72 @@ export class PreviewPlayer {
         m.setValueAtTime(0, at(outB));
         m.linearRampToValueAtTime(1, at(outB + EDGE_FADE_S));
       }
-      src.start(at(seg.outStart + skip), seg.start + skip, len - skip);
-      this.nodes.push(src);
+      // Shifted, the read can fall before the file's start or past its end: start later, or stop sooner, instead.
+      let readFrom = seg.start + skip - offset;
+      let when = at(seg.outStart + skip);
+      let dur = len - skip;
+      if (readFrom < 0) {
+        when -= readFrom;
+        dur += readFrom;
+        readFrom = 0;
+      }
+      dur = Math.min(dur, original.duration - readFrom);
+      if (dur > 0) {
+        src.start(when, readFrom, dur);
+        this.nodes.push(src);
+      }
     });
+
+    // Added tracks, on the output timeline.
+    for (const t of project.audio.tracks) {
+      const buf = extras.trackBuffer(t.assetId);
+      if (!buf || t.length <= 0) continue;
+      const end = t.loop ? l.duration : Math.min(l.duration, t.start + t.length);
+      if (end <= fromOut) continue;
+      const g = ctx.createGain();
+      const level = 10 ** (t.volumeDb / 20);
+      // Fades and volume, in output time from where playback starts.
+      const gainAt = (out: number) => level * (t.fadeIn > 0 ? Math.min(1, Math.max(0, (out - t.start) / t.fadeIn)) : 1) * (t.fadeOut > 0 ? Math.min(1, Math.max(0, (end - out) / t.fadeOut)) : 1);
+      const startOut = Math.max(fromOut, t.start);
+      g.gain.setValueAtTime(gainAt(startOut), at(startOut));
+      if (t.fadeIn > 0 && startOut < t.start + t.fadeIn) g.gain.linearRampToValueAtTime(level, at(t.start + t.fadeIn));
+      if (t.fadeOut > 0) {
+        g.gain.setValueAtTime(gainAt(Math.max(startOut, end - t.fadeOut)), at(Math.max(startOut, end - t.fadeOut)));
+        g.gain.linearRampToValueAtTime(0, at(end));
+      }
+      let out: AudioNode = g;
+      // The music dip: the same envelope the export uses, from where playback starts.
+      if (t.duck && extras.envelope) {
+        const duck = ctx.createGain();
+        const i0 = Math.min(extras.envelope.length - 1, Math.floor(startOut * ENVELOPE_RATE));
+        const curve = extras.envelope.slice(i0);
+        if (curve.length >= 2) duck.gain.setValueCurveAtTime(curve, at(i0 / ENVELOPE_RATE), (curve.length - 1) / ENVELOPE_RATE);
+        g.connect(duck);
+        out = duck;
+      }
+      out.connect(ctx.destination);
+      // One source per pass; looping repeats the trimmed part to the end.
+      for (let passStart = t.start; passStart < end; passStart += t.length) {
+        const passEnd = Math.min(end, passStart + t.length);
+        if (passEnd <= fromOut) {
+          if (!t.loop) break;
+          continue;
+        }
+        const from = Math.max(fromOut, passStart);
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(g);
+        src.start(at(from), t.trimIn + (from - passStart), passEnd - from);
+        this.nodes.push(src);
+        if (!t.loop) break;
+      }
+      cleanupNodes.push(g, out);
+    }
     this.stopGraph = () => {
       for (const c of cleanup) c();
       bus.disconnect();
       volume.disconnect();
+      for (const n of cleanupNodes) n.disconnect();
     };
   }
 

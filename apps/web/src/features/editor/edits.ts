@@ -1,5 +1,5 @@
 /** Edits as pure functions of the project, each one an undoable step via the store's `change`. */
-import type { EditProject, Overlay, OverlayColor, TimeRange } from "@/db/dexie";
+import type { AddedTrack, EditProject, Overlay, OverlayColor, TimeRange } from "@/db/dexie";
 import { normalizeRanges } from "./timeline";
 import { OVERLAY_TEXT_MAX } from "./project";
 
@@ -51,4 +51,21 @@ export function clampOverlay(o: Overlay): Overlay {
   const h = Math.min(1, Math.max(0.03, o.h));
   const c = { ...o, w, h, x: Math.min(1 - w, Math.max(0, o.x)), y: Math.min(1 - h, Math.max(0, o.y)), end: Math.max(o.start + 0.1, o.end) };
   return c.kind === "text" ? { ...c, text: c.text.slice(0, OVERLAY_TEXT_MAX) } : c;
+}
+
+export const addTrack = (t: AddedTrack) => (p: EditProject): EditProject => ({ ...p, audio: { ...p.audio, tracks: [...p.audio.tracks, t] } });
+
+export const updateTrack = (id: string, patch: Partial<AddedTrack>) => (p: EditProject): EditProject => ({
+  ...p,
+  audio: { ...p.audio, tracks: p.audio.tracks.map((t) => (t.id === id ? { ...t, ...patch, start: Math.max(0, patch.start ?? t.start) } : t)) },
+});
+
+export const deleteTrack = (id: string) => (p: EditProject): EditProject => ({ ...p, audio: { ...p.audio, tracks: p.audio.tracks.filter((t) => t.id !== id) } });
+
+/** The original sound's switch and shift. */
+export const setOriginal = (patch: Partial<EditProject["audio"]["original"]>) => (p: EditProject): EditProject => ({ ...p, audio: { ...p.audio, original: { ...p.audio.original, ...patch } } });
+
+/** A new track for an imported file: all of it, from `start`. */
+export function newTrack(assetId: string, name: string, start: number, fileDuration: number, kind: "music" | "voice"): AddedTrack {
+  return { id: newId(), assetId, name, start, trimIn: 0, length: fileDuration, volumeDb: kind === "music" ? -12 : 0, fadeIn: kind === "music" ? 1 : 0, fadeOut: kind === "music" ? 2 : 0, loop: false, duck: kind === "music", voice: kind === "voice" };
 }

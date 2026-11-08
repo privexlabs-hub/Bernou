@@ -24,4 +24,10 @@ export async function deleteRecording(rec: Pick<RecordingRecord, "id" | "opfsPat
     await db().recordings.delete(rec.id);
     await db().editProjects.delete(rec.id);
   });
+  // Audio files added to its edits (the editor stores them in OPFS editor-audio/<recording id>).
+  try {
+    await (await (await navigator.storage.getDirectory()).getDirectoryHandle("editor-audio")).removeEntry(rec.id, { recursive: true });
+  } catch {
+    /* it had none */
+  }
 }

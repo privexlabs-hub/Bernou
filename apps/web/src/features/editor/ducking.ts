@@ -11,13 +11,28 @@ import { sourcesAt, type Layout } from "./timeline";
 export const ENVELOPE_RATE = 100;
 const ATTACK_S = 0.05;
 const RELEASE_S = 0.4;
-/** Louder than this, someone is speaking. */
-const VOICE_DB = -35;
+/** Less spread than this between the quiet and loud parts, and there's no speech to dip for: just noise. */
+const MIN_SPREAD_DB = 6;
 
-/** Gain per 10 ms step: `depthDb` down while `voiceRms` is above the voice level, smoothed. */
+/**
+ * Where speech starts in these levels: halfway, in dB, between the quiet 10th
+ * and loud 90th percentile, so a noisy (outdoor) recording's noise isn't taken
+ * for speech. Null when there's no real difference: nothing to dip for.
+ */
+function voiceThreshold(voiceRms: Float32Array): number | null {
+  const db = Array.from(voiceRms, (x) => 20 * Math.log10(Math.max(x, 1e-9))).sort((a, b) => a - b);
+  if (db.length === 0) return null;
+  const q = (p: number) => db[Math.min(db.length - 1, Math.floor(p * db.length))]!;
+  const quiet = q(0.1);
+  const loud = q(0.9);
+  if (loud - quiet < MIN_SPREAD_DB) return null;
+  return 10 ** ((quiet + loud) / 2 / 20);
+}
+
+/** Gain per 10 ms step: `depthDb` down while someone speaks, smoothed. */
 export function duckingEnvelope(voiceRms: Float32Array, depthDb: number): Float32Array {
   const depth = 10 ** (depthDb / 20);
-  const limit = 10 ** (VOICE_DB / 20);
+  const limit = voiceThreshold(voiceRms) ?? Infinity;
   const step = 1 / ENVELOPE_RATE;
   const down = 1 - Math.exp(-step / ATTACK_S);
   const up = 1 - Math.exp(-step / RELEASE_S);

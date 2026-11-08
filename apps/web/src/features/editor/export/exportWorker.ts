@@ -7,6 +7,7 @@
 import { ALL_FORMATS, AudioSample, AudioSampleSink, AudioSampleSource, BlobSource, CanvasSource, canEncodeAudio, canEncodeVideo, Input, Mp4OutputFormat, Output, StreamTarget, VideoSampleSink, WebMOutputFormat, type InputAudioTrack, type InputVideoTrack, type VideoSample } from "mediabunny";
 import { Rnnoise } from "@shiguredo/rnnoise-wasm";
 import { AudioRenderer, type Denoiser } from "../audioRender";
+import { TrackMixer } from "../mixTracks";
 import { drawFrame, type FrameLayer } from "../render";
 import { layout, sourcesAt, type Layout } from "../timeline";
 import { pcm16, wavHeader } from "../wav";
@@ -121,11 +122,17 @@ async function makeDenoiser(): Promise<() => Denoiser> {
   };
 }
 
-/** Renders the edited audio of `l`, giving each finished piece to `out`. */
-async function renderAudio(track: InputAudioTrack, l: Layout, project: EditProject, out: (planes: Float32Array[], timestamp: number) => Promise<void>) {
+/**
+ * The recording's own sound, edited, giving each finished piece to `out`. Read
+ * shifted by its offset (sound time = picture time − offset), and placed in
+ * picture time, so mutes and fades stay where they are on the picture.
+ */
+async function renderAudio(track: InputAudioTrack, l: Layout, project: EditProject, channels: number, out: (planes: Float32Array[], timestamp: number) => Promise<void>) {
   const denoise = project.audio.denoise.on && track.sampleRate === RNNOISE_RATE ? await makeDenoiser() : undefined;
   const ready: [Float32Array[], number][] = [];
-  const r = new AudioRenderer({ sampleRate: track.sampleRate, channels: track.numberOfChannels, layout: l, project, denoiser: denoise, onOutput: (p, t) => ready.push([p, t]) });
+  const offset = project.audio.original.offsetMs / 1000;
+  // Unclamped: the mixer adds tracks and clamps once.
+  const r = new AudioRenderer({ sampleRate: track.sampleRate, channels, layout: l, project, denoiser: denoise, clamp: false, onOutput: (p, t) => ready.push([p, t]) });
   const drain = async () => {
     while (ready.length) {
       const [p, t] = ready.shift()!;
@@ -135,10 +142,12 @@ async function renderAudio(track: InputAudioTrack, l: Layout, project: EditProje
   const sink = new AudioSampleSink(track);
   for (let i = 0; i < l.segments.length; i++) {
     const seg = l.segments[i]!;
-    for await (const s of sink.samples(seg.start, seg.end)) {
+    // Where the shift reaches before the file's start or past its end there's nothing to read: silence.
+    if (seg.end - offset <= 0) continue;
+    for await (const s of sink.samples(Math.max(0, seg.start - offset), seg.end - offset)) {
       if (cancelled) return s.close();
       const p = planes(s);
-      const t = s.timestamp;
+      const t = s.timestamp + offset;
       s.close();
       r.push(i, t, p);
       await drain();
@@ -146,6 +155,30 @@ async function renderAudio(track: InputAudioTrack, l: Layout, project: EditProje
   }
   r.finish();
   await drain();
+}
+
+/**
+ * All the edited sound: the recording's own (unless it's off or absent) with
+ * the added tracks mixed on top, clamped once. `fullDuration` and `from` place
+ * a slice (a join preview) on the whole output's timeline.
+ */
+async function produceAudio(m: Extract<ToWorker, { type: "export" }>, original: InputAudioTrack | null, l: Layout, fullDuration: number, out: (planes: Float32Array[], timestamp: number) => Promise<void>) {
+  const { rate, channels, tracks, envelope } = m.audio;
+  const mixer = new TrackMixer({ sampleRate: rate, tracks, envelope, outputDuration: fullDuration, timeOffset: m.range?.from ?? 0 });
+  const emit = async (p: Float32Array[], t: number) => {
+    mixer.mix(p, Math.round(t * rate));
+    await out(p, t);
+  };
+  if (original && m.project.audio.original.on) {
+    if (original.sampleRate !== rate) throw new Error(`The mix is at ${rate} Hz but the recording's sound is at ${original.sampleRate} Hz.`);
+    return renderAudio(original, l, m.project, channels, emit);
+  }
+  // No recording sound: the tracks over silence, a second at a time.
+  const total = Math.round(l.duration * rate);
+  for (let at = 0; at < total && !cancelled; at += rate) {
+    const n = Math.min(rate, total - at);
+    await emit(Array.from({ length: channels }, () => new Float32Array(n)), at / rate);
+  }
 }
 
 /** Pulls frames for a list of times, in order, from one decoder. */
@@ -168,12 +201,13 @@ async function exportFile(m: Extract<ToWorker, { type: "export" }>) {
   const handle = await root.getFileHandle(m.fileName, { create: true });
   const remove = () => root.removeEntry(m.fileName).catch(() => undefined);
 
+  const hasSound = (!!audio && m.project.audio.original.on) || m.audio.tracks.length > 0;
   if (m.audioOnly) {
-    if (!audio) throw new Error("This recording has no sound.");
+    if (!hasSound) throw new Error("There's no sound to save: the recording's sound is off and no audio is added");
     const writable = await handle.createWritable();
-    const frames = Math.round(l.duration * audio.sampleRate);
-    await writable.write(wavHeader(frames, audio.numberOfChannels, audio.sampleRate) as Uint8Array<ArrayBuffer>);
-    await renderAudio(audio, l, m.project, async (p, t) => {
+    const frames = Math.round(l.duration * m.audio.rate);
+    await writable.write(wavHeader(frames, m.audio.channels, m.audio.rate) as Uint8Array<ArrayBuffer>);
+    await produceAudio(m, audio, l, full.duration, async (p, t) => {
       await writable.write(pcm16(p) as Uint8Array<ArrayBuffer>);
       send({ type: "progress", id: m.id, done: Math.round(t * 1000), total: Math.round(l.duration * 1000) });
     });
@@ -191,7 +225,8 @@ async function exportFile(m: Extract<ToWorker, { type: "export" }>) {
   const w = video.displayWidth;
   const h = video.displayHeight;
   const bitrate = sourceBitrate(m.file, duration);
-  const choice = await chooseOutput(w, h, !!audio, bitrate);
+  // With no sound at all, the export has no audio track.
+  const choice = await chooseOutput(w, h, hasSound, bitrate);
   if (!choice) throw new Error("This browser can't encode video. Try Chrome or Edge.");
   const writable = await handle.createWritable();
   const output = new Output({
@@ -202,7 +237,7 @@ async function exportFile(m: Extract<ToWorker, { type: "export" }>) {
   const ctx = canvas.getContext("2d")!;
   const vsrc = new CanvasSource(canvas, { codec: choice.video as "avc", bitrate, keyFrameInterval: 2, hardwareAcceleration: choice.hardware });
   output.addVideoTrack(vsrc, { frameRate: FPS });
-  const asrc = audio && choice.audio ? new AudioSampleSource({ codec: choice.audio as "aac", bitrate: 128_000 }) : null;
+  const asrc = hasSound && choice.audio ? new AudioSampleSource({ codec: choice.audio as "aac", bitrate: 128_000 }) : null;
   if (asrc) output.addAudioTrack(asrc);
   await output.start();
 
@@ -236,7 +271,7 @@ async function exportFile(m: Extract<ToWorker, { type: "export" }>) {
       if (i % 15 === 0) send({ type: "progress", id: m.id, done: i, total });
     }
   })();
-  const audioJob = audio && asrc ? renderAudio(audio, l, m.project, (p, t) => asrc.add(new AudioSample({ data: interleavePlanar(p), format: "f32-planar", numberOfChannels: p.length, sampleRate: audio.sampleRate, timestamp: t }))) : Promise.resolve();
+  const audioJob = asrc ? produceAudio(m, audio, l, full.duration, (p, t) => asrc.add(new AudioSample({ data: interleavePlanar(p), format: "f32-planar", numberOfChannels: p.length, sampleRate: m.audio.rate, timestamp: t }))) : Promise.resolve();
 
   try {
     await Promise.all([videoJob, audioJob]);

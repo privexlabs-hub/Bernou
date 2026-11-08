@@ -15,8 +15,9 @@ import { getEditProject, saveEditProject } from "@/db/repositories/editProjects"
 import { useEditorStore } from "@/stores/private/editorStore";
 import { useEditorUi } from "@/stores/private/editorUiStore";
 import { isEditableTarget } from "@/features/slides/useSlideShortcuts";
-import { addOverlay, deleteOverlay, muteSection, newHighlight, newText, removeSection } from "./edits";
-import { newEditProject } from "./project";
+import { addOverlay, addTrack, deleteOverlay, muteSection, newHighlight, newText, newTrack, removeSection, setOriginal } from "./edits";
+import { newEditProject, normalizeProject } from "./project";
+import { buildEnvelope, buildExportAudio, cachedAsset, closeAssets, importAudio, loadAsset } from "./audioAssets";
 import { layout as computeLayout, toOutput } from "./timeline";
 import { useEditorWorker, WorkerClosed } from "./export/client";
 import { outputDir, TEMP_DIR, type SourceInfo } from "./export/protocol";
@@ -38,6 +39,7 @@ export function EditorPage() {
   const worker = useEditorWorker();
   const video = useRef<HTMLVideoElement>(null);
   const player = useRef<PreviewPlayer | null>(null);
+  const recordingId = useRef<string | null>(null);
   const [exporting, setExporting] = useState<null | "video" | "audio">(null);
   const [joinPreview, setJoinPreview] = useState<{ url: string; name: string } | { busy: true } | null>(null);
   const project = useEditorStore((s) => s.project);
@@ -71,7 +73,14 @@ export function EditorPage() {
       if (cancelled) return;
       if (!info.output) return setError("This browser can't encode video, so it can't export edits. Try Chrome or Edge.");
       const saved = await getEditProject(rec.id);
-      useEditorStore.getState().load(saved ?? newEditProject({ id: rec.id, durationMs: info.duration * 1000 }));
+      // Projects saved before a setting existed get its default.
+      const project = normalizeProject(saved ?? newEditProject({ id: rec.id, durationMs: info.duration * 1000 }));
+      // Added audio, decoded before the page shows, so play and export have it.
+      const rate = info.hasAudio ? info.sampleRate : 48000;
+      for (const t of project.audio.tracks) await loadAsset(rec.id, t.assetId, rate);
+      if (cancelled) return;
+      recordingId.current = rec.id;
+      useEditorStore.getState().load(project);
       const url = URL.createObjectURL(source);
       setLoaded({ rec, source, url, info, peaks: null });
       if (info.hasAudio) {
@@ -88,6 +97,8 @@ export function EditorPage() {
     });
     return () => {
       cancelled = true;
+      // Files no longer used by the project go, and decodes are forgotten.
+      if (recordingId.current) void closeAssets(recordingId.current, useEditorStore.getState().project);
       useEditorStore.getState().close();
     };
   }, [id, worker]);
@@ -117,6 +128,13 @@ export function EditorPage() {
   const duration = loaded?.info.duration ?? 0;
   const l = useMemo(() => (project ? computeLayout({ duration, trim: project.trim, cuts: project.cuts, smoothJoins: project.smoothJoins }) : null), [project, duration]);
 
+  /** Added audio and the music dip, for the preview. The same envelope the export gets. */
+  const extras = useCallback(() => {
+    const original = player.current?.originalSamples() ?? null;
+    return { trackBuffer: cachedAsset, envelope: project && l ? buildEnvelope(project, l, original) : null };
+  }, [project, l]);
+  const exportAudio = useCallback(() => buildExportAudio(project!, loaded!.info, l!, player.current?.originalSamples() ?? null), [project, loaded, l]);
+
   // The player, once the video element exists.
   useEffect(() => {
     if (!video.current || !loaded) return;
@@ -133,7 +151,7 @@ export function EditorPage() {
   useEffect(() => {
     const p = player.current;
     if (!p || !l || !project || !p.playing) return;
-    void p.play(l, project, p.position());
+    void p.play(l, project, p.position(), extras());
   }, [project, l]);
 
   const togglePlay = useCallback(() => {
@@ -144,7 +162,7 @@ export function EditorPage() {
       ui.set({ playing: false });
     } else {
       ui.set({ playing: true });
-      void p.play(l, project, useEditorUi.getState().outTime);
+      void p.play(l, project, useEditorUi.getState().outTime, extras());
     }
   }, [l, project, ui]);
 
@@ -157,10 +175,34 @@ export function EditorPage() {
         const next = l.segments.find((s) => s.start >= t);
         out = next ? next.outStart : l.duration;
       }
-      if (player.current.playing) void player.current.play(l, project!, out);
+      if (player.current.playing) void player.current.play(l, project!, out, extras());
       else void player.current.seek(l, out);
     },
     [l, project],
+  );
+
+  const seekOutput = useCallback(
+    (out: number) => {
+      if (!l || !player.current) return;
+      if (player.current.playing) void player.current.play(l, project!, out, extras());
+      else void player.current.seek(l, out);
+    },
+    [l, project, extras],
+  );
+
+  /** An imported file becomes a track; as the voice, it also switches the recording's sound off, in one undo step. */
+  const importFile = useCallback(
+    async (file: File, kind: "music" | "voice") => {
+      if (!loaded) return;
+      const { assetId, buffer } = await importAudio(loaded.rec.id, file, loaded.info.hasAudio ? loaded.info.sampleRate : 48000);
+      const t = newTrack(assetId, file.name, 0, buffer.duration, kind);
+      change((p) => {
+        const withTrack = addTrack(t)(p);
+        return kind === "voice" ? setOriginal({ on: false })(withTrack) : withTrack;
+      });
+      useEditorUi.getState().set({ mode: "edited", selectedTrack: t.id, panel: "audio" });
+    },
+    [loaded, change],
   );
 
   const sel = ui.selection;
@@ -191,11 +233,22 @@ export function EditorPage() {
         else undo();
         return;
       }
-      if (mod || e.altKey) return;
+      if (mod) return;
       const u = useEditorUi.getState();
       if (e.key === " ") {
         e.preventDefault();
         togglePlay();
+      } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        // A frame; with Shift a millisecond; with Alt one audio sample.
+        e.preventDefault();
+        const rate = player.current?.originalSamples()?.rate ?? 48000;
+        const dt = (e.altKey ? 1 / rate : e.shiftKey ? 0.001 : 1 / 30) * (e.key === "ArrowLeft" ? -1 : 1);
+        seekSource(Math.min(duration, Math.max(0, u.sourceTime + dt)));
+      } else if (e.key === "[" || e.key === "]") {
+        const t = u.sourceTime;
+        const s = u.selection;
+        if (e.key === "[") u.set({ selection: { start: t, end: s && s.end > t ? s.end : Math.min(duration, t + 0.001) } });
+        else u.set({ selection: { start: s && s.start < t ? s.start : Math.max(0, t - 0.001), end: t } });
       } else if (e.key === "i" || e.key === "o") {
         const t = u.sourceTime;
         const s = u.selection ?? { start: t, end: Math.min(duration, t + 1) };
@@ -210,7 +263,7 @@ export function EditorPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [togglePlay, undo, redo, duration, act, change]);
+  }, [togglePlay, undo, redo, duration, act, change, seekSource]);
 
   const previewJoin = async (i: number) => {
     if (!l || !loaded || !project || !worker) return;
@@ -218,7 +271,7 @@ export function EditorPage() {
     setJoinPreview({ busy: true });
     try {
       const name = `join-preview-${Date.now()}.${loaded.info.output!.container}`;
-      await worker.export({ file: loaded.source, project, fileName: name, dir: TEMP_DIR, audioOnly: false, range: { from: at - 1.5, to: at + l.joins[i]!.crossfade + 1.5 } });
+      await worker.export({ file: loaded.source, project, fileName: name, dir: TEMP_DIR, audioOnly: false, range: { from: at - 1.5, to: at + l.joins[i]!.crossfade + 1.5 }, audio: exportAudio() });
       const f = await (await (await outputDir(TEMP_DIR)).getFileHandle(name)).getFile();
       setJoinPreview({ url: URL.createObjectURL(f), name });
     } catch {
@@ -266,12 +319,12 @@ export function EditorPage() {
               <span className="flex-1" />
               <SelectionBar duration={duration} onAct={act} />
             </div>
-            <TimelineView duration={duration} peaks={loaded.peaks} peaksPerSecond={PEAKS_PER_SECOND} onSeekSource={seekSource} />
+            <TimelineView duration={duration} layout={l} peaks={loaded.peaks} peaksPerSecond={PEAKS_PER_SECOND} samples={player.current?.originalSamples() ?? null} trackBuffer={cachedAsset} onSeekSource={seekSource} onSeekOutput={seekOutput} />
             <p className="text-xs text-muted-foreground">Space plays · drag on the timeline to select · I and O set the selection at the playhead · Delete removes it · ⌘Z undoes</p>
           </section>
-          <aside className="panel min-h-0 overflow-hidden p-3"><Panels duration={duration} layout={l} info={loaded.info} onPreviewJoin={(i) => void previewJoin(i)} onAudioOnly={() => setExporting("audio")} /></aside>
+          <aside className="panel min-h-0 overflow-hidden p-3"><Panels duration={duration} layout={l} info={loaded.info} onPreviewJoin={(i) => void previewJoin(i)} onAudioOnly={() => setExporting("audio")} samples={player.current?.originalSamples() ?? null} onImport={importFile} onJump={seekSource} /></aside>
         </div>
-        <ExportDialog open={exporting !== null} onClose={() => setExporting(null)} worker={worker} source={loaded.source} original={loaded.rec} project={project} info={loaded.info} audioOnly={exporting === "audio"} />
+        <ExportDialog open={exporting !== null} onClose={() => setExporting(null)} worker={worker} buildAudio={exportAudio} source={loaded.source} original={loaded.rec} project={project} info={loaded.info} audioOnly={exporting === "audio"} />
         <Dialog open={joinPreview !== null} onOpenChange={(o) => !o && closeJoinPreview()}>
           <DialogContent data-testid="editor-join-preview">
             <DialogHeader><DialogTitle>Join, as exported</DialogTitle></DialogHeader>
@@ -289,11 +342,11 @@ function SelectionBar({ duration, onAct }: { duration: number; onAct: (w: "remov
   const field = (k: "start" | "end") => (
     <Input
       type="number"
-      step={0.01}
+      step="any"
       min={0}
       max={duration}
-      className="h-7 w-20 px-1 font-mono text-xs"
-      value={selection ? selection[k].toFixed(2) : ""}
+      className="h-7 w-28 px-1 font-mono text-xs"
+      value={selection ? String(+selection[k].toFixed(6)) : ""}
       placeholder={k === "start" ? "from" : "to"}
       aria-label={k === "start" ? "Selection start, seconds" : "Selection end, seconds"}
       data-testid={`editor-sel-${k}`}
@@ -305,12 +358,14 @@ function SelectionBar({ duration, onAct }: { duration: number; onAct: (w: "remov
       }}
     />
   );
-  const none = !selection || selection.end - selection.start < 0.01;
+  // Any length at all: a single audio sample is a valid thing to remove.
+  const none = !selection || selection.end - selection.start <= 0;
   return (
     <div className="flex items-center gap-1" data-testid="editor-selection">
       {field("start")}
       <span className="text-xs text-muted-foreground">–</span>
       {field("end")}
+      <span className="w-20 font-mono text-[11px] text-muted-foreground" data-testid="editor-sel-length">{selection ? `${((selection.end - selection.start) * 1000).toFixed(selection.end - selection.start < 0.01 ? 3 : 1)} ms` : ""}</span>
       <Button size="sm" variant="secondary" disabled={none} onClick={() => onAct("remove")} data-testid="editor-remove"><Scissors /> Remove</Button>
       <Button size="sm" variant="ghost" disabled={none} onClick={() => onAct("mute")} data-testid="editor-mute"><VolumeX /> Mute</Button>
       <Button size="sm" variant="ghost" disabled={none} onClick={() => onAct("text")} data-testid="editor-add-text"><Type /> Text</Button>

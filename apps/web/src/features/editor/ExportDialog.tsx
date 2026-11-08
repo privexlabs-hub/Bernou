@@ -8,11 +8,11 @@ import { downloadRecording, recordingFileName } from "@/features/recording/recor
 import { newId } from "@/lib/id";
 import { formatBytes, formatDuration } from "@/lib/format";
 import type { EditorWorker } from "./export/client";
-import { outputDir, RECORDINGS_DIR, TEMP_DIR, type SourceInfo } from "./export/protocol";
+import { outputDir, RECORDINGS_DIR, TEMP_DIR, type ExportAudio, type SourceInfo } from "./export/protocol";
 
 type State = { phase: "running"; done: number; total: number; startedAt: number } | { phase: "done"; rec: RecordingRecord | null; downloaded: boolean } | { phase: "error"; message: string } | { phase: "cancelled" };
 
-export function ExportDialog({ open, onClose, worker, source, original, project, info, audioOnly }: { open: boolean; onClose: () => void; worker: EditorWorker; source: Blob; original: RecordingRecord; project: EditProject; info: SourceInfo; audioOnly: boolean }) {
+export function ExportDialog({ open, onClose, worker, buildAudio, source, original, project, info, audioOnly }: { open: boolean; onClose: () => void; worker: EditorWorker; buildAudio: () => ExportAudio; source: Blob; original: RecordingRecord; project: EditProject; info: SourceInfo; audioOnly: boolean }) {
   const [state, setState] = useState<State | null>(null);
   const started = useRef(false);
 
@@ -29,7 +29,7 @@ export function ExportDialog({ open, onClose, worker, source, original, project,
     setState({ phase: "running", done: 0, total: 1, startedAt: performance.now() });
     void (async () => {
       try {
-        const r = await worker.export({ file: source, project, fileName, dir: audioOnly ? TEMP_DIR : RECORDINGS_DIR, audioOnly }, (done, total) => setState((s) => (s?.phase === "running" ? { ...s, done, total } : s)));
+        const r = await worker.export({ file: source, project, fileName, dir: audioOnly ? TEMP_DIR : RECORDINGS_DIR, audioOnly, audio: buildAudio() }, (done, total) => setState((s) => (s?.phase === "running" ? { ...s, done, total } : s)));
         if (r.cancelled) return setState({ phase: "cancelled" });
         if (audioOnly) {
           const file = await (await (await outputDir(TEMP_DIR)).getFileHandle(r.fileName)).getFile();
@@ -70,7 +70,7 @@ export function ExportDialog({ open, onClose, worker, source, original, project,
         setState({ phase: "error", message: (e as Error).message });
       }
     })();
-  }, [open, worker, source, project, audioOnly, info, original]);
+  }, [open, worker, buildAudio, source, project, audioOnly, info, original]);
 
   const running = state?.phase === "running";
   const pct = running ? Math.min(100, Math.round((state.done / Math.max(1, state.total)) * 100)) : 100;

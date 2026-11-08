@@ -1,5 +1,6 @@
 /** Messages between the editor page and its export Worker. */
 import type { EditProject } from "@/db/dexie";
+import type { MixTrack } from "../mixTracks";
 
 /**
  * OPFS folders. An export that becomes a recording goes where recordings live;
@@ -31,7 +32,7 @@ export type ToWorker =
   | { type: "probe"; id: number; file: Blob }
   /** Decoded audio, downmixed to mono, for the preview and the waveform. */
   | { type: "decodeAudio"; id: number; file: Blob; peaksPerSecond: number }
-  | { type: "export"; id: number; file: Blob; project: EditProject; fileName: string; dir: OutputDir; audioOnly: boolean; range?: { from: number; to: number } }
+  | { type: "export"; id: number; file: Blob; project: EditProject; fileName: string; dir: OutputDir; audioOnly: boolean; range?: { from: number; to: number }; audio: ExportAudio }
   | { type: "cancel" };
 
 export type FromWorker =
@@ -40,6 +41,17 @@ export type FromWorker =
   | { type: "progress"; id: number; done: number; total: number }
   | { type: "export"; id: number; result: ExportResult }
   | { type: "error"; id: number; message: string };
+
+/** The sound to make, decided on the page so the preview and export agree. */
+export interface ExportAudio {
+  /** Sample rate and channels of the mix: the recording's rate, else 48 kHz. */
+  rate: number;
+  channels: number;
+  /** Added tracks, decoded at `rate` (copies: the page keeps its own for the preview). */
+  tracks: (Omit<MixTrack, "planes"> & { planes: Float32Array[] })[];
+  /** The music dip, 100 values a second over the whole output, or null if nothing dips. */
+  envelope: Float32Array | null;
+}
 
 export interface ExportResult {
   fileName: string;

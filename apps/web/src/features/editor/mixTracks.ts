@@ -23,12 +23,15 @@ export class TrackMixer {
   private readonly tracks: MixTrack[];
   private readonly env: Float32Array | null;
   private readonly total: number;
+  private readonly timeOffset: number;
 
-  constructor(o: { sampleRate: number; tracks: MixTrack[]; envelope: Float32Array | null; outputDuration: number }) {
+  /** `timeOffset`: where sample 0 is on the output timeline, for mixing a slice of it. */
+  constructor(o: { sampleRate: number; tracks: MixTrack[]; envelope: Float32Array | null; outputDuration: number; timeOffset?: number }) {
     this.rate = o.sampleRate;
     this.tracks = o.tracks;
     this.env = o.envelope;
     this.total = o.outputDuration;
+    this.timeOffset = o.timeOffset ?? 0;
   }
 
   /** Adds every track into `planes`, which start at output sample `startSample`, then clamps to full scale. */
@@ -40,7 +43,7 @@ export class TrackMixer {
       const end = tr.loop ? this.total : Math.min(this.total, tr.start + passLen);
       if (passLen <= 0) continue;
       for (let i = 0; i < n; i++) {
-        const t = (startSample + i) / this.rate;
+        const t = (startSample + i) / this.rate + this.timeOffset;
         if (t < tr.start || t >= end) continue;
         const local = (t - tr.start) % passLen;
         const src = Math.floor((tr.trimIn + local) * this.rate);

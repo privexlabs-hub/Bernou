@@ -1,7 +1,7 @@
 /** The editor page's side of the export Worker. */
 import { useEffect, useState } from "react";
 import type { EditProject } from "@/db/dexie";
-import type { ExportResult, FromWorker, OutputDir, SourceInfo, ToWorker } from "./protocol";
+import type { ExportAudio, ExportResult, FromWorker, OutputDir, SourceInfo, ToWorker } from "./protocol";
 
 type Pending = { resolve: (m: FromWorker) => void; reject: (e: Error) => void; onProgress?: ((done: number, total: number) => void) | undefined };
 
@@ -26,11 +26,11 @@ export class EditorWorker {
     };
   }
 
-  private call(m: Omit<ToWorker, "id"> & { type: Exclude<ToWorker["type"], "cancel"> }, onProgress?: Pending["onProgress"]): Promise<FromWorker> {
+  private call(m: Omit<ToWorker, "id"> & { type: Exclude<ToWorker["type"], "cancel"> }, onProgress?: Pending["onProgress"], transfer: Transferable[] = []): Promise<FromWorker> {
     const id = this.next++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject, onProgress });
-      this.worker.postMessage({ ...m, id });
+      this.worker.postMessage({ ...m, id }, transfer);
     });
   }
 
@@ -44,8 +44,10 @@ export class EditorWorker {
     return { samples: m.samples, sampleRate: m.sampleRate, peaks: m.peaks };
   }
 
-  async export(opts: { file: Blob; project: EditProject; fileName: string; dir: OutputDir; audioOnly: boolean; range?: { from: number; to: number } }, onProgress?: Pending["onProgress"]): Promise<ExportResult> {
-    const m = (await this.call({ type: "export", ...opts } as never, onProgress)) as Extract<FromWorker, { type: "export" }>;
+  async export(opts: { file: Blob; project: EditProject; fileName: string; dir: OutputDir; audioOnly: boolean; range?: { from: number; to: number }; audio: ExportAudio }, onProgress?: Pending["onProgress"]): Promise<ExportResult> {
+    // Track samples are copies made for this export: hand them over rather than copy again.
+    const transfer = opts.audio.tracks.flatMap((t) => t.planes.map((p) => p.buffer));
+    const m = (await this.call({ type: "export", ...opts } as never, onProgress, transfer)) as Extract<FromWorker, { type: "export" }>;
     return m.result;
   }
 
