@@ -3,7 +3,12 @@ import { useEffect, useState } from "react";
 import type { EditProject } from "@/db/dexie";
 import type { ExportAudio, ExportResult, FromWorker, OutputDir, SourceInfo, ToWorker } from "./protocol";
 
-type Pending = { resolve: (m: FromWorker) => void; reject: (e: Error) => void; onProgress?: ((done: number, total: number) => void) | undefined };
+type Pending = {
+  resolve: (m: FromWorker) => void;
+  reject: (e: Error) => void;
+  onProgress?: ((done: number, total: number) => void) | undefined;
+  onBatch?: ((times: number[], bitmaps: ImageBitmap[]) => void) | undefined;
+};
 
 export class EditorWorker {
   private worker = new Worker(new URL("./exportWorker.ts", import.meta.url), { type: "module" });
@@ -14,8 +19,13 @@ export class EditorWorker {
     this.worker.onmessage = (e: MessageEvent<FromWorker>) => {
       const m = e.data;
       const p = this.pending.get(m.id);
-      if (!p) return;
+      if (!p) {
+        // A batch for a request no one is waiting for any more: free it.
+        if (m.type === "thumbs") m.bitmaps.forEach((b) => b.close());
+        return;
+      }
       if (m.type === "progress") return p.onProgress?.(m.done, m.total);
+      if (m.type === "thumbs") return p.onBatch ? p.onBatch(m.times, m.bitmaps) : m.bitmaps.forEach((b) => b.close());
       this.pending.delete(m.id);
       if (m.type === "error") p.reject(new Error(m.message));
       else p.resolve(m);
@@ -26,10 +36,13 @@ export class EditorWorker {
     };
   }
 
-  private call(m: Omit<ToWorker, "id"> & { type: Exclude<ToWorker["type"], "cancel"> }, onProgress?: Pending["onProgress"], transfer: Transferable[] = []): Promise<FromWorker> {
+  private exportId: number | null = null;
+
+  private call(m: Omit<ToWorker, "id"> & { type: Exclude<ToWorker["type"], "cancel"> }, onProgress?: Pending["onProgress"], transfer: Transferable[] = [], onBatch?: Pending["onBatch"], idOut?: (id: number) => void): Promise<FromWorker> {
     const id = this.next++;
+    idOut?.(id);
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject, onProgress });
+      this.pending.set(id, { resolve, reject, onProgress, onBatch });
       this.worker.postMessage({ ...m, id }, transfer);
     });
   }
@@ -47,12 +60,23 @@ export class EditorWorker {
   async export(opts: { file: Blob; project: EditProject; fileName: string; dir: OutputDir; audioOnly: boolean; range?: { from: number; to: number }; audio: ExportAudio }, onProgress?: Pending["onProgress"]): Promise<ExportResult> {
     // Track samples are copies made for this export: hand them over rather than copy again.
     const transfer = opts.audio.tracks.flatMap((t) => t.planes.map((p) => p.buffer));
-    const m = (await this.call({ type: "export", ...opts } as never, onProgress, transfer)) as Extract<FromWorker, { type: "export" }>;
-    return m.result;
+    try {
+      const m = (await this.call({ type: "export", ...opts } as never, onProgress, transfer, undefined, (id) => (this.exportId = id))) as Extract<FromWorker, { type: "export" }>;
+      return m.result;
+    } finally {
+      this.exportId = null;
+    }
   }
 
+  /** Cancels the export running, and only it. */
   cancel() {
-    this.worker.postMessage({ type: "cancel" } satisfies ToWorker);
+    if (this.exportId !== null) this.worker.postMessage({ type: "cancel", id: this.exportId } satisfies ToWorker);
+  }
+
+  /** Thumbnails from `from` seconds on, a batch at a time. Resolves with where to resume if an export interrupted it. */
+  async thumbnails(file: Blob, from: number, onBatch: (times: number[], bitmaps: ImageBitmap[]) => void): Promise<{ cancelled: boolean; next: number }> {
+    const m = (await this.call({ type: "thumbnails", file, from } as never, undefined, [], onBatch)) as Extract<FromWorker, { type: "thumbnails" }>;
+    return { cancelled: m.cancelled, next: m.next };
   }
 
   dispose() {

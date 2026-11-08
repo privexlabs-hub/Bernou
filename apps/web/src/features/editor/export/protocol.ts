@@ -33,12 +33,18 @@ export type ToWorker =
   /** Decoded audio, downmixed to mono, for the preview and the waveform. */
   | { type: "decodeAudio"; id: number; file: Blob; peaksPerSecond: number }
   | { type: "export"; id: number; file: Blob; project: EditProject; fileName: string; dir: OutputDir; audioOnly: boolean; range?: { from: number; to: number }; audio: ExportAudio }
-  | { type: "cancel" };
+  /** Video thumbnails from `from` seconds on, a batch at a time. */
+  | { type: "thumbnails"; id: number; file: Blob; from: number }
+  /** Cancels one job; others carry on. */
+  | { type: "cancel"; id: number };
 
 export type FromWorker =
   | { type: "probe"; id: number; info: SourceInfo }
   | { type: "decodeAudio"; id: number; samples: Float32Array; sampleRate: number; peaks: Float32Array }
   | { type: "progress"; id: number; done: number; total: number }
+  | { type: "thumbs"; id: number; times: number[]; bitmaps: ImageBitmap[] }
+  /** The end of a thumbnails job: `cancelled` if an export took the decoder, so the page can ask again from `next`. */
+  | { type: "thumbnails"; id: number; cancelled: boolean; next: number }
   | { type: "export"; id: number; result: ExportResult }
   | { type: "error"; id: number; message: string };
 

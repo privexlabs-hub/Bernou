@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Download, Highlighter, Pause, Play, Redo2, RotateCcw, Scissors, Type, Undo2, VolumeX } from "lucide-react";
+import { ArrowLeft, Download, EyeOff, Highlighter, Pause, Play, Redo2, RotateCcw, Scissors, Type, Undo2, VolumeX } from "lucide-react";
 import { fixMp4FragmentGaps, readRecordingFile } from "@bernou/media-core/recorder";
 import { Button } from "@/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/ui/dialog";
@@ -15,7 +15,9 @@ import { getEditProject, saveEditProject } from "@/db/repositories/editProjects"
 import { useEditorStore } from "@/stores/private/editorStore";
 import { useEditorUi } from "@/stores/private/editorUiStore";
 import { isEditableTarget } from "@/features/slides/useSlideShortcuts";
-import { addOverlay, addTrack, deleteOverlay, muteSection, newHighlight, newText, newTrack, removeSection, setOriginal } from "./edits";
+import { addOverlay, addTrack, blankPicture, deleteOverlay, muteSection, newHighlight, newText, newTrack, removeSection, setOriginal } from "./edits";
+import { findSilencesInLevels, suggestThresholdFromLevels, windowLevels } from "./silences";
+import { keptSegments } from "./timeline";
 import { newEditProject, normalizeProject } from "./project";
 import { buildEnvelope, buildExportAudio, cachedAsset, closeAssets, importAudio, loadAsset } from "./audioAssets";
 import { layout as computeLayout, toOutput } from "./timeline";
@@ -40,6 +42,13 @@ export function EditorPage() {
   const video = useRef<HTMLVideoElement>(null);
   const player = useRef<PreviewPlayer | null>(null);
   const recordingId = useRef<string | null>(null);
+  /** Video thumbnails: in a ref (bitmaps don't belong in a store), with a version to redraw on. */
+  const thumbs = useRef<{ times: number[]; bitmaps: ImageBitmap[] }>({ times: [], bitmaps: [] });
+  const [thumbsVersion, setThumbsVersion] = useState(0);
+  const [thumbsFrom, setThumbsFrom] = useState<number | null>(null);
+  /** The recording sound's 10 ms levels, measured once per decode, for finding silences. */
+  const levels = useRef<{ levels: Float32Array; seconds: number; suggested: number } | null>(null);
+  const [decoded, setDecoded] = useState(0);
   const [exporting, setExporting] = useState<null | "video" | "audio">(null);
   const [joinPreview, setJoinPreview] = useState<{ url: string; name: string } | { busy: true } | null>(null);
   const project = useEditorStore((s) => s.project);
@@ -90,8 +99,13 @@ export function EditorPage() {
         });
         if (cancelled || !a) return;
         player.current?.setAudio(a.samples, a.sampleRate);
+        const lv = windowLevels(a.samples, a.sampleRate);
+        levels.current = { levels: lv, seconds: a.samples.length / a.sampleRate, suggested: suggestThresholdFromLevels(lv) };
+        setDecoded((n) => n + 1);
         setLoaded((l) => (l ? { ...l, peaks: a.peaks } : l));
       }
+      // Thumbnails after the sound, so they don't slow opening.
+      if (!cancelled) setThumbsFrom(0);
     })().catch((e) => {
       if (!cancelled && !(e instanceof WorkerClosed)) setError(`This recording can't be opened for editing (${(e as Error).message}).`);
     });
@@ -127,6 +141,66 @@ export function EditorPage() {
 
   const duration = loaded?.info.duration ?? 0;
   const l = useMemo(() => (project ? computeLayout({ duration, trim: project.trim, cuts: project.cuts, smoothJoins: project.smoothJoins }) : null), [project, duration]);
+
+  // Thumbnails, a batch at a time. An export takes the decoder: then ask again from where it stopped, once it's done.
+  useEffect(() => {
+    if (!worker || !loaded || thumbsFrom === null || exporting !== null || !Number.isFinite(thumbsFrom)) return;
+    let live = true;
+    void worker
+      .thumbnails(loaded.source, thumbsFrom, (times, bitmaps) => {
+        if (!live) return bitmaps.forEach((b) => b.close());
+        thumbs.current.times.push(...times);
+        thumbs.current.bitmaps.push(...bitmaps);
+        setThumbsVersion((v) => v + 1);
+      })
+      .then((r) => live && setThumbsFrom(r.cancelled ? r.next : Infinity))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [worker, loaded?.source, thumbsFrom, exporting]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(
+    () => () => {
+      for (const b of thumbs.current.bitmaps) b.close();
+      thumbs.current = { times: [], bitmaps: [] };
+    },
+    [],
+  );
+
+  // Silences, kept up to date: a rescan of the measured levels when the settings, deleted sound or shift change;
+  // only intersecting with what's kept when cuts change. Found in sound time, shown in picture time.
+  const silenceSettings = useEditorUi((s) => s.silenceSettings);
+  const soundGaps = useMemo(() => {
+    const lv = levels.current;
+    if (!lv || !project) return [];
+    const offset = project.audio.original.offsetMs / 1000;
+    const muted = project.audio.mutes.map((m) => ({ start: m.start - offset, end: m.end - offset }));
+    return findSilencesInLevels(lv.levels, lv.seconds, { thresholdDb: silenceSettings.thresholdDb ?? lv.suggested, minDuration: silenceSettings.minDuration, keep: silenceSettings.keep }, muted);
+  }, [decoded, silenceSettings, project?.audio.mutes, project?.audio.original.offsetMs]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!project) return;
+    const offset = project.audio.original.offsetMs / 1000;
+    const kept = keptSegments({ duration, trim: project.trim, cuts: project.cuts, smoothJoins: false });
+    const shown = !project.audio.original.on
+      ? []
+      : soundGaps.flatMap((g) => kept.map((k) => ({ start: Math.max(g.start + offset, k.start), end: Math.min(g.end + offset, k.end) }))).filter((r) => r.end - r.start >= silenceSettings.minDuration - 1e-9);
+    useEditorUi.getState().set({ silences: shown, hoverSilence: null });
+  }, [soundGaps, project?.cuts, project?.trim, project?.audio.original.on, duration, silenceSettings.minDuration]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** A gap, removed by clicking it: one undo step, and a word about it. */
+  const removeGap = useCallback(
+    (g: { start: number; end: number }) => {
+      change(removeSection(g, duration));
+      useEditorUi.getState().set({ status: `Removed a ${(g.end - g.start).toFixed(1)} s gap · ⌘Z to undo` });
+    },
+    [change, duration],
+  );
+  const status = useEditorUi((s) => s.status);
+  useEffect(() => {
+    if (!status) return;
+    const t = setTimeout(() => useEditorUi.getState().set({ status: "" }), 4000);
+    return () => clearTimeout(t);
+  }, [status]);
 
   /** Added audio and the music dip, for the preview. The same envelope the export gets. */
   const extras = useCallback(() => {
@@ -207,10 +281,11 @@ export function EditorPage() {
 
   const sel = ui.selection;
   const act = useCallback(
-    (what: "remove" | "mute" | "text" | "highlight") => {
+    (what: "remove" | "mute" | "picture" | "text" | "highlight") => {
       if (!sel || !project) return;
       if (what === "remove") change(removeSection(sel, duration));
       if (what === "mute") change(muteSection(sel, duration));
+      if (what === "picture") change(blankPicture(sel, duration));
       if (what === "text" || what === "highlight") {
         const o = what === "text" ? newText(sel) : newHighlight(sel);
         change(addOverlay(o));
@@ -225,15 +300,16 @@ export function EditorPage() {
   // Keys: Space, I/O, Delete, undo and redo. Not while typing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (isEditableTarget(e.target)) return;
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key.toLowerCase() === "z") {
+      // Undo works with a tab or button focused too; only text fields keep ⌘Z for their own text.
+      const typing = e.target instanceof HTMLElement && (e.target.isContentEditable || e.target.tagName === "TEXTAREA" || (e.target.tagName === "INPUT" && (e.target as HTMLInputElement).type !== "range" && (e.target as HTMLInputElement).type !== "checkbox"));
+      if (mod && e.key.toLowerCase() === "z" && !typing && !(e.target instanceof HTMLElement && e.target.closest("[role=dialog]"))) {
         e.preventDefault();
         if (e.shiftKey) redo();
         else undo();
         return;
       }
-      if (mod) return;
+      if (isEditableTarget(e.target) || mod) return;
       const u = useEditorUi.getState();
       if (e.key === " ") {
         e.preventDefault();
@@ -313,16 +389,17 @@ export function EditorPage() {
             <div className="min-h-0 flex-1">
               <Preview ref={video} src={loaded.url} width={loaded.info.width} height={loaded.info.height} />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button size="sm" onClick={togglePlay} aria-label={ui.playing ? "Pause" : "Play"} data-testid="editor-play">{ui.playing ? <Pause /> : <Play />}</Button>
               <span className="font-mono text-xs text-muted-foreground" data-testid="editor-time">{fmt(ui.outTime)} / {fmt(l.duration)}</span>
               <span className="flex-1" />
               <SelectionBar duration={duration} onAct={act} />
             </div>
-            <TimelineView duration={duration} layout={l} peaks={loaded.peaks} peaksPerSecond={PEAKS_PER_SECOND} samples={player.current?.originalSamples() ?? null} trackBuffer={cachedAsset} onSeekSource={seekSource} onSeekOutput={seekOutput} />
+            <TimelineView duration={duration} layout={l} peaks={loaded.peaks} peaksPerSecond={PEAKS_PER_SECOND} samples={player.current?.originalSamples() ?? null} trackBuffer={cachedAsset} thumbs={thumbs.current} thumbsVersion={thumbsVersion} onSeekSource={seekSource} onSeekOutput={seekOutput} onRemoveGap={removeGap} />
+            <p className="min-h-4 text-xs text-primary" role="status" aria-live="polite" data-testid="editor-status">{status}</p>
             <p className="text-xs text-muted-foreground">Space plays · drag on the timeline to select · I and O set the selection at the playhead · Delete removes it · ⌘Z undoes</p>
           </section>
-          <aside className="panel min-h-0 overflow-hidden p-3"><Panels duration={duration} layout={l} info={loaded.info} onPreviewJoin={(i) => void previewJoin(i)} onAudioOnly={() => setExporting("audio")} samples={player.current?.originalSamples() ?? null} onImport={importFile} onJump={seekSource} /></aside>
+          <aside className="panel min-h-0 overflow-hidden p-3"><Panels duration={duration} layout={l} info={loaded.info} onPreviewJoin={(i) => void previewJoin(i)} onAudioOnly={() => setExporting("audio")} suggestedDb={decoded > 0 ? (levels.current?.suggested ?? null) : null} onImport={importFile} onJump={seekSource} /></aside>
         </div>
         <ExportDialog open={exporting !== null} onClose={() => setExporting(null)} worker={worker} buildAudio={exportAudio} source={loaded.source} original={loaded.rec} project={project} info={loaded.info} audioOnly={exporting === "audio"} />
         <Dialog open={joinPreview !== null} onOpenChange={(o) => !o && closeJoinPreview()}>
@@ -337,7 +414,7 @@ export function EditorPage() {
 }
 
 /** The selected range, editable to the hundredth of a second, and what to do with it. */
-function SelectionBar({ duration, onAct }: { duration: number; onAct: (w: "remove" | "mute" | "text" | "highlight") => void }) {
+function SelectionBar({ duration, onAct }: { duration: number; onAct: (w: "remove" | "mute" | "picture" | "text" | "highlight") => void }) {
   const { selection, set } = useEditorUi();
   const field = (k: "start" | "end") => (
     <Input
@@ -361,13 +438,14 @@ function SelectionBar({ duration, onAct }: { duration: number; onAct: (w: "remov
   // Any length at all: a single audio sample is a valid thing to remove.
   const none = !selection || selection.end - selection.start <= 0;
   return (
-    <div className="flex items-center gap-1" data-testid="editor-selection">
+    <div className="flex min-w-0 flex-wrap items-center justify-end gap-1" data-testid="editor-selection">
       {field("start")}
       <span className="text-xs text-muted-foreground">–</span>
       {field("end")}
       <span className="w-20 font-mono text-[11px] text-muted-foreground" data-testid="editor-sel-length">{selection ? `${((selection.end - selection.start) * 1000).toFixed(selection.end - selection.start < 0.01 ? 3 : 1)} ms` : ""}</span>
       <Button size="sm" variant="secondary" disabled={none} onClick={() => onAct("remove")} data-testid="editor-remove"><Scissors /> Remove</Button>
-      <Button size="sm" variant="ghost" disabled={none} onClick={() => onAct("mute")} data-testid="editor-mute"><VolumeX /> Mute</Button>
+      <Button size="sm" variant="ghost" disabled={none} onClick={() => onAct("mute")} title="Silence this stretch; the picture stays" data-testid="editor-mute"><VolumeX /> Delete sound</Button>
+      <Button size="sm" variant="ghost" disabled={none} onClick={() => onAct("picture")} title="Black for this stretch; the sound carries on" data-testid="editor-delete-picture"><EyeOff /> Delete picture</Button>
       <Button size="sm" variant="ghost" disabled={none} onClick={() => onAct("text")} data-testid="editor-add-text"><Type /> Text</Button>
       <Button size="sm" variant="ghost" disabled={none} onClick={() => onAct("highlight")} data-testid="editor-add-highlight"><Highlighter /> Highlight</Button>
     </div>

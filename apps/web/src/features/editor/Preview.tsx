@@ -7,7 +7,7 @@ import { forwardRef, useEffect, useRef, useState } from "react";
 import type { Overlay } from "@/db/dexie";
 import { useEditorStore } from "@/stores/private/editorStore";
 import { useEditorUi } from "@/stores/private/editorUiStore";
-import { drawOverlays, pictureFilter } from "./render";
+import { drawOverlays, isBlank, pictureFilter } from "./render";
 import { updateOverlay } from "./edits";
 
 const HANDLE = 14; // px, the resize corner
@@ -75,6 +75,8 @@ export const Preview = forwardRef<HTMLVideoElement, { src: string; width: number
     <div ref={area} className="flex h-full w-full items-center justify-center overflow-hidden">
     <div className="relative overflow-hidden rounded-md bg-black" style={{ width: size.w, height: size.h }}>
       <video ref={videoRef} src={src} muted playsInline preload="auto" className="absolute inset-0 h-full w-full" style={{ filter: pictureFilter(project.picture) }} data-testid="editor-video" />
+      {/* A picture-only cut: black under the overlays, as in the export. */}
+      {isBlank(project.blanks, sourceTime) && <div className="absolute inset-0 bg-black" data-testid="editor-blank" />}
       <canvas
         ref={canvas}
         className="absolute inset-0 h-full w-full"

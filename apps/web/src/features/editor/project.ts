@@ -15,6 +15,7 @@ export function newEditProject(rec: Pick<RecordingRecord, "id" | "durationMs">):
     smoothJoins: false,
     audio: { volumeDb: 0, mutes: [], denoise: { on: false, strength: 1 }, original: { on: true, offsetMs: 0 }, tracks: [], ducking: { depthDb: -12 } },
     picture: { brightness: 0, contrast: 0, saturation: 0 },
+    blanks: [],
     overlays: [],
   };
 }
@@ -26,6 +27,7 @@ export function normalizeProject(p: EditProject): EditProject {
   const a = p.audio as Partial<EditProject["audio"]> & Pick<EditProject["audio"], "volumeDb" | "mutes" | "denoise">;
   return {
     ...p,
+    blanks: p.blanks ?? [],
     audio: {
       ...a,
       original: a.original ?? { on: true, offsetMs: 0 },

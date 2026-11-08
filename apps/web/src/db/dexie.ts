@@ -199,6 +199,8 @@ export interface EditProject {
   };
   /** -50..50 each; 0 is unchanged. */
   picture: { brightness: number; contrast: number; saturation: number };
+  /** Picture-only cuts: black for these stretches (original time), the sound carrying on. */
+  blanks: TimeRange[];
   overlays: Overlay[];
 }
 

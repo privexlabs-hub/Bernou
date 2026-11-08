@@ -14,6 +14,11 @@ export const muteSection = (r: TimeRange, duration: number) => (p: EditProject):
 
 export const unmuteSection = (r: TimeRange, duration: number) => (p: EditProject): EditProject => ({ ...p, audio: { ...p.audio, mutes: subtract(p.audio.mutes, r, duration) } });
 
+/** Picture-only cut: black there, the sound carries on, the length is unchanged. */
+export const blankPicture = (r: TimeRange, duration: number) => (p: EditProject): EditProject => ({ ...p, blanks: normalizeRanges([...p.blanks, r], duration) });
+
+export const unblankPicture = (r: TimeRange, duration: number) => (p: EditProject): EditProject => ({ ...p, blanks: subtract(p.blanks, r, duration) });
+
 export const setTrim = (trim: TimeRange) => (p: EditProject): EditProject => ({ ...p, trim });
 
 function subtract(ranges: TimeRange[], r: TimeRange, duration: number): TimeRange[] {

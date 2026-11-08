@@ -20,7 +20,10 @@ const RNNOISE_DELAY = 960;
 const RNNOISE_RATE = 48000;
 
 const send = (m: FromWorker, transfer: Transferable[] = []) => postMessage(m, { transfer });
-let cancelled = false;
+/** Jobs cancelled by id. Each job checks its own, so cancelling one never stops another. */
+const cancelledJobs = new Set<number>();
+/** The thumbnails job running, if any: an export cancels it, to have the decoder to itself. */
+let thumbsJob: number | null = null;
 
 async function open(file: Blob) {
   const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
@@ -127,7 +130,7 @@ async function makeDenoiser(): Promise<() => Denoiser> {
  * shifted by its offset (sound time = picture time − offset), and placed in
  * picture time, so mutes and fades stay where they are on the picture.
  */
-async function renderAudio(track: InputAudioTrack, l: Layout, project: EditProject, channels: number, out: (planes: Float32Array[], timestamp: number) => Promise<void>) {
+async function renderAudio(track: InputAudioTrack, l: Layout, project: EditProject, channels: number, isCancelled: () => boolean, out: (planes: Float32Array[], timestamp: number) => Promise<void>) {
   const denoise = project.audio.denoise.on && track.sampleRate === RNNOISE_RATE ? await makeDenoiser() : undefined;
   const ready: [Float32Array[], number][] = [];
   const offset = project.audio.original.offsetMs / 1000;
@@ -145,7 +148,7 @@ async function renderAudio(track: InputAudioTrack, l: Layout, project: EditProje
     // Where the shift reaches before the file's start or past its end there's nothing to read: silence.
     if (seg.end - offset <= 0) continue;
     for await (const s of sink.samples(Math.max(0, seg.start - offset), seg.end - offset)) {
-      if (cancelled) return s.close();
+      if (isCancelled()) return s.close();
       const p = planes(s);
       const t = s.timestamp + offset;
       s.close();
@@ -162,7 +165,7 @@ async function renderAudio(track: InputAudioTrack, l: Layout, project: EditProje
  * the added tracks mixed on top, clamped once. `fullDuration` and `from` place
  * a slice (a join preview) on the whole output's timeline.
  */
-async function produceAudio(m: Extract<ToWorker, { type: "export" }>, original: InputAudioTrack | null, l: Layout, fullDuration: number, out: (planes: Float32Array[], timestamp: number) => Promise<void>) {
+async function produceAudio(m: Extract<ToWorker, { type: "export" }>, original: InputAudioTrack | null, l: Layout, fullDuration: number, isCancelled: () => boolean, out: (planes: Float32Array[], timestamp: number) => Promise<void>) {
   const { rate, channels, tracks, envelope } = m.audio;
   const mixer = new TrackMixer({ sampleRate: rate, tracks, envelope, outputDuration: fullDuration, timeOffset: m.range?.from ?? 0 });
   const emit = async (p: Float32Array[], t: number) => {
@@ -171,11 +174,11 @@ async function produceAudio(m: Extract<ToWorker, { type: "export" }>, original: 
   };
   if (original && m.project.audio.original.on) {
     if (original.sampleRate !== rate) throw new Error(`The mix is at ${rate} Hz but the recording's sound is at ${original.sampleRate} Hz.`);
-    return renderAudio(original, l, m.project, channels, emit);
+    return renderAudio(original, l, m.project, channels, isCancelled, emit);
   }
   // No recording sound: the tracks over silence, a second at a time.
   const total = Math.round(l.duration * rate);
-  for (let at = 0; at < total && !cancelled; at += rate) {
+  for (let at = 0; at < total && !isCancelled(); at += rate) {
     const n = Math.min(rate, total - at);
     await emit(Array.from({ length: channels }, () => new Float32Array(n)), at / rate);
   }
@@ -191,7 +194,8 @@ function frameStream(track: InputVideoTrack, times: number[]) {
 }
 
 async function exportFile(m: Extract<ToWorker, { type: "export" }>) {
-  cancelled = false;
+  const isCancelled = () => cancelledJobs.has(m.id);
+  if (thumbsJob !== null) cancelledJobs.add(thumbsJob);
   const { input, video, audio } = await open(m.file);
   const duration = await input.computeDuration();
   const full = layout({ duration, trim: m.project.trim, cuts: m.project.cuts, smoothJoins: m.project.smoothJoins });
@@ -207,11 +211,11 @@ async function exportFile(m: Extract<ToWorker, { type: "export" }>) {
     const writable = await handle.createWritable();
     const frames = Math.round(l.duration * m.audio.rate);
     await writable.write(wavHeader(frames, m.audio.channels, m.audio.rate) as Uint8Array<ArrayBuffer>);
-    await produceAudio(m, audio, l, full.duration, async (p, t) => {
+    await produceAudio(m, audio, l, full.duration, isCancelled, async (p, t) => {
       await writable.write(pcm16(p) as Uint8Array<ArrayBuffer>);
       send({ type: "progress", id: m.id, done: Math.round(t * 1000), total: Math.round(l.duration * 1000) });
     });
-    if (cancelled) {
+    if (isCancelled()) {
       await writable.abort();
       await remove();
       return result(m, null, true);
@@ -249,29 +253,27 @@ async function exportFile(m: Extract<ToWorker, { type: "export" }>) {
   const second = frameStream(video, layers.filter((s) => s.length > 1).map((s) => s[1]!.t));
 
   const videoJob = (async () => {
-    for (let i = 0; i < total && !cancelled; i++) {
+    for (let i = 0; i < total && !isCancelled(); i++) {
       const at = layers[i]!;
       const samples = [await first(), at.length > 1 ? await second() : null];
       const drawn: FrameLayer[] = [];
       const frames: VideoFrame[] = [];
       at.forEach((s, k) => {
         const sample = samples[k];
-        if (!sample) return;
+        if (!sample) return drawn.push({ image: null, weight: s.weight, t: s.t });
         const f = sample.toVideoFrame();
         frames.push(f);
         drawn.push({ image: f, weight: s.weight, t: s.t });
       });
-      if (drawn.length === 0) {
-        ctx.fillStyle = "#000";
-        ctx.fillRect(0, 0, w, h);
-      } else drawFrame(ctx, drawn, w, h, m.project.picture, m.project.overlays);
+      // Missing frames and picture-only cuts are black, drawn the same way as in the preview.
+      drawFrame(ctx, drawn, w, h, m.project.picture, m.project.overlays, m.project.blanks);
       for (const f of frames) f.close();
       for (const s of samples) s?.close();
       await vsrc.add(i / FPS, 1 / FPS);
       if (i % 15 === 0) send({ type: "progress", id: m.id, done: i, total });
     }
   })();
-  const audioJob = asrc ? produceAudio(m, audio, l, full.duration, (p, t) => asrc.add(new AudioSample({ data: interleavePlanar(p), format: "f32-planar", numberOfChannels: p.length, sampleRate: m.audio.rate, timestamp: t }))) : Promise.resolve();
+  const audioJob = asrc ? produceAudio(m, audio, l, full.duration, isCancelled, (p, t) => asrc.add(new AudioSample({ data: interleavePlanar(p), format: "f32-planar", numberOfChannels: p.length, sampleRate: m.audio.rate, timestamp: t }))) : Promise.resolve();
 
   try {
     await Promise.all([videoJob, audioJob]);
@@ -280,7 +282,7 @@ async function exportFile(m: Extract<ToWorker, { type: "export" }>) {
     await remove();
     throw e;
   }
-  if (cancelled) {
+  if (isCancelled()) {
     await output.cancel().catch(() => undefined);
     await remove();
     return result(m, null, true);
@@ -321,16 +323,69 @@ function result(m: { id: number; fileName: string }, r: Omit<ExportResult, "file
   send({ type: "export", id: m.id, result: { fileName: m.fileName, bytes: 0, durationMs: 0, mime: "", extension: "", width: 0, height: 0, ...r, cancelled: wasCancelled } });
 }
 
+const THUMB_WIDTH = 128;
+const THUMB_BATCH = 100;
+const MAX_THUMBS = 1200;
+
+/** Thumbnails every `max(0.5 s, duration / 1200)`, from the frame on screen at each moment, sent in batches. */
+async function thumbnails(m: Extract<ToWorker, { type: "thumbnails" }>) {
+  thumbsJob = m.id;
+  const isCancelled = () => cancelledJobs.has(m.id);
+  try {
+    const { input, video } = await open(m.file);
+    if (!video) return send({ type: "thumbnails", id: m.id, cancelled: false, next: Infinity });
+    const duration = await input.computeDuration();
+    const step = Math.max(0.5, duration / MAX_THUMBS);
+    const times: number[] = [];
+    for (let t = Math.ceil(m.from / step) * step; t < duration; t += step) times.push(+t.toFixed(4));
+    const w = THUMB_WIDTH;
+    const h = Math.max(2, Math.round((THUMB_WIDTH * video.displayHeight) / Math.max(1, video.displayWidth)));
+    const canvas = new OffscreenCanvas(w, h);
+    const ctx = canvas.getContext("2d")!;
+    const next = frameStream(video, times);
+    let batch: { times: number[]; bitmaps: ImageBitmap[] } = { times: [], bitmaps: [] };
+    const flush = () => {
+      if (batch.times.length) send({ type: "thumbs", id: m.id, ...batch }, batch.bitmaps);
+      batch = { times: [], bitmaps: [] };
+    };
+    for (const t of times) {
+      if (isCancelled()) {
+        flush();
+        return send({ type: "thumbnails", id: m.id, cancelled: true, next: t });
+      }
+      const sample = await next();
+      if (sample) {
+        const f = sample.toVideoFrame();
+        ctx.drawImage(f, 0, 0, w, h);
+        f.close();
+        sample.close();
+      } else {
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, w, h);
+      }
+      batch.times.push(t);
+      batch.bitmaps.push(canvas.transferToImageBitmap());
+      if (batch.times.length >= THUMB_BATCH) flush();
+    }
+    flush();
+    send({ type: "thumbnails", id: m.id, cancelled: false, next: Infinity });
+  } finally {
+    if (thumbsJob === m.id) thumbsJob = null;
+    cancelledJobs.delete(m.id);
+  }
+}
+
 self.onmessage = async (e: MessageEvent<ToWorker>) => {
   const m = e.data;
   if (m.type === "cancel") {
-    cancelled = true;
+    cancelledJobs.add(m.id);
     return;
   }
   try {
     if (m.type === "probe") send({ type: "probe", id: m.id, info: await probe(m.file) });
     if (m.type === "decodeAudio") await decodeAudio(m.id, m.file, m.peaksPerSecond);
-    if (m.type === "export") await exportFile(m);
+    if (m.type === "export") await exportFile(m).finally(() => cancelledJobs.delete(m.id));
+    if (m.type === "thumbnails") await thumbnails(m);
   } catch (err) {
     send({ type: "error", id: m.id, message: err instanceof Error ? err.message : String(err) });
   }

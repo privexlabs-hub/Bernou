@@ -89,12 +89,11 @@ test("zooming in to a few milliseconds, and selecting to the microsecond", async
   expect(Number(await tl.getAttribute("data-view-start"))).toBe(0);
 });
 
-test("silences: found, reviewed, removed in one step, and undone in one", async ({ page }) => {
+test("silences: found on their own, reviewed, removed in one step, and undone in one", async ({ page }) => {
   await installFakeSource(page, { speech: true });
   await recordAndOpenEditor(page, 12);
   const before = await editorDuration(page);
   await page.getByTestId("editor-tab-silences").click();
-  await page.getByTestId("editor-silence-find").click();
   await expect(page.getByTestId("editor-silence-summary")).toContainText("found");
   const n = await page.getByTestId("editor-silence-item").count();
   expect(n).toBeGreaterThanOrEqual(2); // the gaps between phrases

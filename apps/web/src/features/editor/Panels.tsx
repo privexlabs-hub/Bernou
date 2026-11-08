@@ -3,7 +3,6 @@ import { useMemo, useRef, useState } from "react";
 import { Trash2, Undo2 } from "lucide-react";
 import { Input } from "@/ui/input";
 import type { AddedTrack, TimeRange } from "@/db/dexie";
-import { findSilences, suggestThreshold } from "./silences";
 import { OVERLAY_COLORS, type Overlay, type TextOverlay } from "@/db/dexie";
 import { Button } from "@/ui/button";
 import { Slider } from "@/ui/slider";
@@ -30,14 +29,14 @@ export interface PanelsProps {
   info: SourceInfo;
   onPreviewJoin: (joinIndex: number) => void;
   onAudioOnly: () => void;
-  /** The decoded recording sound, mono, for finding silences. */
-  samples: { samples: Float32Array; rate: number } | null;
+  /** The silence threshold suggested from the recording's sound, or null while it's being read. */
+  suggestedDb: number | null;
   /** Adds an imported file as music, or as the voice in place of the recording's. Throws a message to show. */
   onImport: (file: File, kind: "music" | "voice") => Promise<void>;
   onJump: (sourceTime: number) => void;
 }
 
-export function Panels({ duration, layout, info, onPreviewJoin, onAudioOnly, samples, onImport, onJump }: PanelsProps) {
+export function Panels({ duration, layout, info, onPreviewJoin, onAudioOnly, suggestedDb, onImport, onJump }: PanelsProps) {
   const panel = useEditorUi((s) => s.panel);
   const setUi = useEditorUi((s) => s.set);
   return (
@@ -51,7 +50,7 @@ export function Panels({ duration, layout, info, onPreviewJoin, onAudioOnly, sam
       </TabsList>
       <div className="min-h-0 flex-1 overflow-y-auto pt-3 text-sm">
         <TabsContent value="cuts"><CutsPanel duration={duration} layout={layout} onPreviewJoin={onPreviewJoin} /></TabsContent>
-        <TabsContent value="silences"><SilencesPanel duration={duration} samples={samples} onJump={onJump} /></TabsContent>
+        <TabsContent value="silences"><SilencesPanel duration={duration} suggestedDb={suggestedDb} onJump={onJump} /></TabsContent>
         <TabsContent value="audio"><AudioPanel duration={duration} info={info} onAudioOnly={onAudioOnly} onImport={onImport} /></TabsContent>
         <TabsContent value="overlays"><OverlaysPanel /></TabsContent>
         <TabsContent value="picture"><PicturePanel /></TabsContent>
@@ -256,34 +255,24 @@ function TrackEditor({ trackId }: { trackId: string }) {
   );
 }
 
-/** Finds silent stretches in the recording's sound, to review and remove. */
-function SilencesPanel({ duration, samples, onJump }: { duration: number; samples: PanelsProps["samples"]; onJump: (t: number) => void }) {
+/** The silent stretches found in the recording's sound, kept up to date by the page, to review and remove. */
+function SilencesPanel({ duration, suggestedDb, onJump }: { duration: number; suggestedDb: number | null; onJump: (t: number) => void }) {
   const p = useEditorStore((s) => s.project)!;
   const change = useEditorStore((s) => s.change);
-  const { silences, set } = useEditorUi();
-  const suggested = useMemo(() => (samples ? suggestThreshold(samples.samples, samples.rate) : -40), [samples]);
-  const [threshold, setThreshold] = useState<number | null>(null);
-  const [minDuration, setMinDuration] = useState(0.5);
-  const [keep, setKeep] = useState(0.15);
-  const [chosen, setChosen] = useState<Set<number>>(new Set());
-  const [found, setFound] = useState(false);
-  const db = threshold ?? suggested;
-  if (!samples) return <p className="text-xs text-muted-foreground">{p.audio.original.on ? "Reading the recording's sound…" : "The recording's sound is off."}</p>;
-
-  const find = () => {
-    const all = findSilences(samples.samples, samples.rate, { thresholdDb: db, minDuration, keep, offset: p.audio.original.offsetMs / 1000 });
-    // Only what's still in the edit: the parts of each silence inside what's kept.
-    const kept = keptSegments({ duration, trim: p.trim, cuts: p.cuts, smoothJoins: false });
-    const list = all.flatMap((s) => kept.map((k) => ({ start: Math.max(s.start, k.start), end: Math.min(s.end, k.end) })).filter((r) => r.end - r.start >= 0.01));
-    set({ silences: list });
-    setChosen(new Set(list.map((_, i) => i)));
-    setFound(true);
-  };
+  const silences = useEditorUi((s) => s.silences);
+  const settings = useEditorUi((s) => s.silenceSettings);
+  const set = useEditorUi((s) => s.set);
+  // Unticked ones, by start time: anything newly found is ticked.
+  const [unticked, setUnticked] = useState<Set<number>>(new Set());
+  const patch = (x: Partial<typeof settings>) => set({ silenceSettings: { ...settings, ...x } });
+  if (!p.audio.original.on) return <p className="text-xs text-muted-foreground">The recording's sound is muted, so there's nothing to listen for.</p>;
+  if (suggestedDb === null) return <p className="text-xs text-muted-foreground">Reading the recording's sound…</p>;
+  const db = settings.thresholdDb ?? suggestedDb;
+  const chosen = silences.filter((g) => !unticked.has(g.start));
   const remove = (ranges: TimeRange[]) => {
     if (ranges.length === 0) return;
     change((x) => ({ ...x, cuts: normalizeRanges([...x.cuts, ...ranges], duration) }));
-    set({ silences: [] });
-    setFound(false);
+    setUnticked(new Set());
   };
   const row = (label: string, value: string, slider: React.ReactNode) => (
     <div className="space-y-1">
@@ -291,33 +280,35 @@ function SilencesPanel({ duration, samples, onJump }: { duration: number; sample
       {slider}
     </div>
   );
-  const total = silences.reduce((n, s) => n + s.end - s.start, 0);
+  const total = silences.reduce((n, g) => n + g.end - g.start, 0);
   return (
     <div className="space-y-4" data-testid="editor-silences">
-      <p className="text-xs text-muted-foreground">Finds stretches quieter than the threshold, keeping a natural pause at each end. Review them on the timeline (yellow), then remove all or some: one undo puts them all back.</p>
-      {row("Quieter than", `${db} dB${threshold === null ? " (suggested)" : ""}`, <Slider min={-70} max={-15} step={1} value={[db]} onValueChange={([v]) => v !== undefined && setThreshold(v)} aria-label="Silence threshold" data-testid="editor-silence-threshold" />)}
-      {row("For at least", `${minDuration.toFixed(1)} s`, <Slider min={0.1} max={3} step={0.1} value={[minDuration]} onValueChange={([v]) => v !== undefined && setMinDuration(v)} aria-label="Shortest silence" data-testid="editor-silence-min" />)}
-      {row("Pause to keep", `${keep.toFixed(2)} s`, <Slider min={0} max={0.5} step={0.05} value={[keep]} onValueChange={([v]) => v !== undefined && setKeep(v)} aria-label="Pause to keep at each end" data-testid="editor-silence-keep" />)}
-      <Button size="sm" onClick={find} data-testid="editor-silence-find">Find silences</Button>
-      {found && (
-        <div className="space-y-2">
-          <p className="text-xs" data-testid="editor-silence-summary">{silences.length === 0 ? "No silences found with these settings." : `${silences.length} found, ${total.toFixed(1)} s in all.`}</p>
-          <ul className="max-h-56 space-y-1 overflow-y-auto" data-testid="editor-silence-list">
-            {silences.map((s, i) => (
-              <li key={`${s.start}`} className="flex items-center gap-2 rounded border border-border/70 px-2 py-1" data-testid="editor-silence-item">
-                <input type="checkbox" checked={chosen.has(i)} onChange={(e) => setChosen((c) => { const n = new Set(c); if (e.target.checked) n.add(i); else n.delete(i); return n; })} aria-label={`Remove the silence at ${fmt(s.start)}`} />
-                <button type="button" className="flex-1 text-left font-mono text-xs" onClick={() => onJump(s.start)}>{fmt(s.start)} · {((s.end - s.start) * 1000).toFixed(0)} ms</button>
-              </li>
-            ))}
-          </ul>
-          {silences.length > 0 && (
-            <div className="flex gap-2">
-              <Button size="sm" variant="secondary" disabled={chosen.size === 0} onClick={() => remove(silences.filter((_, i) => chosen.has(i)))} data-testid="editor-silence-remove-selected">Remove selected</Button>
-              <Button size="sm" onClick={() => remove(silences)} data-testid="editor-silence-remove-all">Remove all</Button>
-            </div>
-          )}
-        </div>
-      )}
+      <p className="text-xs text-muted-foreground">Gaps are found as you edit: stretches quieter than the threshold, keeping a natural pause at each end. They're yellow on the Sound row; click one there to delete it, or remove them here. One undo puts them back.</p>
+      {row("Quieter than", `${db} dB${settings.thresholdDb === null ? " (suggested)" : ""}`, <Slider min={-70} max={-15} step={1} value={[db]} onValueChange={([v]) => v !== undefined && patch({ thresholdDb: v })} aria-label="Silence threshold" data-testid="editor-silence-threshold" />)}
+      {row("For at least", `${settings.minDuration.toFixed(1)} s`, <Slider min={0.1} max={3} step={0.1} value={[settings.minDuration]} onValueChange={([v]) => v !== undefined && patch({ minDuration: v })} aria-label="Shortest silence" data-testid="editor-silence-min" />)}
+      {row("Pause to keep", `${settings.keep.toFixed(2)} s`, <Slider min={0} max={0.5} step={0.05} value={[settings.keep]} onValueChange={([v]) => v !== undefined && patch({ keep: v })} aria-label="Pause to keep at each end" data-testid="editor-silence-keep" />)}
+      <div className="space-y-2">
+        <p className="text-xs" data-testid="editor-silence-summary">{silences.length === 0 ? "No gaps with these settings." : `${silences.length} found, ${total.toFixed(1)} s in all.`}</p>
+        <ul className="max-h-56 space-y-1 overflow-y-auto" data-testid="editor-silence-list">
+          {silences.map((g) => (
+            <li key={g.start} className="flex items-center gap-2 rounded border border-border/70 px-2 py-1" data-testid="editor-silence-item">
+              <input
+                type="checkbox"
+                checked={!unticked.has(g.start)}
+                onChange={(e) => setUnticked((c) => { const n = new Set(c); if (e.target.checked) n.delete(g.start); else n.add(g.start); return n; })}
+                aria-label={`Remove the gap at ${fmt(g.start)}`}
+              />
+              <button type="button" className="flex-1 text-left font-mono text-xs" onClick={() => onJump(g.start)}>{fmt(g.start)} · {((g.end - g.start) * 1000).toFixed(0)} ms</button>
+            </li>
+          ))}
+        </ul>
+        {silences.length > 0 && (
+          <div className="flex gap-2">
+            <Button size="sm" variant="secondary" disabled={chosen.length === 0} onClick={() => remove(chosen)} data-testid="editor-silence-remove-selected">Remove selected</Button>
+            <Button size="sm" onClick={() => remove(silences)} data-testid="editor-silence-remove-all">Remove all</Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

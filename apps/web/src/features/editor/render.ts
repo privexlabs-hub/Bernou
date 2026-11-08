@@ -3,7 +3,7 @@
  * overlays. The same code runs in the editor's preview and in the export
  * Worker, so overlays land in the file exactly where they were placed.
  */
-import type { EditProject, Overlay } from "@/db/dexie";
+import type { EditProject, Overlay, TimeRange } from "@/db/dexie";
 import { PICTURE_RANGE } from "./project";
 
 const clampPicture = (x: number) => Math.max(-PICTURE_RANGE, Math.min(PICTURE_RANGE, x));
@@ -93,9 +93,12 @@ export function drawOverlays(ctx: CanvasRenderingContext2D | OffscreenCanvasRend
   }
 }
 
-/** One source frame and its share of the picture; `t` is its original time. */
+/** Whether original time `t` is inside a picture-only cut. */
+export const isBlank = (blanks: TimeRange[], t: number) => blanks.some((b) => t >= b.start && t < b.end);
+
+/** One source frame and its share of the picture; `t` is its original time. No image: black. */
 export interface FrameLayer {
-  image: CanvasImageSource;
+  image: CanvasImageSource | null;
   weight: number;
   t: number;
 }
@@ -105,12 +108,23 @@ export interface FrameLayer {
  * smooth join, the later one over the earlier one at its weight), then each
  * one's overlays, faded with it.
  */
-export function drawFrame(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, layers: FrameLayer[], w: number, h: number, picture: EditProject["picture"], overlays: Overlay[]) {
+export function drawFrame(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, layers: FrameLayer[], w: number, h: number, picture: EditProject["picture"], overlays: Overlay[], blanks: TimeRange[] = []) {
   ctx.save();
-  ctx.filter = pictureFilter(picture);
+  if (layers.length === 0) {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, h);
+  }
   layers.forEach((l, i) => {
     ctx.globalAlpha = i === 0 ? 1 : l.weight;
-    ctx.drawImage(l.image, 0, 0, w, h);
+    if (!l.image || isBlank(blanks, l.t)) {
+      // Black, with the filter off: a contrast setting would otherwise turn it grey.
+      ctx.filter = "none";
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, w, h);
+    } else {
+      ctx.filter = pictureFilter(picture);
+      ctx.drawImage(l.image, 0, 0, w, h);
+    }
   });
   ctx.restore();
   for (const l of layers) {
