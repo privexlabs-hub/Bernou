@@ -19,7 +19,7 @@ pnpm dev            # presenter workspace at http://localhost:5173 (use pnpm ins
 
 Open the app, create a presentation, import a PDF (export PowerPoint to PDF first), paste a script, turn on your camera and microphone, then **Open audience window** and share *that window* in Zoom, Meet or Teams. **Record** saves the audience output with your microphone; download it when you stop, or later from the dashboard. The tools above the preview (pointer, pen, highlighter, eraser) mark the slide for the audience too. To read beside your camera, press **Float** in the Prompter tab and drag the floating prompter under the lens. It has its own play, speed and slide controls, and it shows in an entire-screen share, so share the audience window instead.
 
-To edit a recording, press **Edit** (the scissors) on it in the dashboard or after recording. Cut and trim, smooth joins, volume, muting, background-noise removal, text and highlights, and brightness, contrast and saturation are all available, with undo. **Export** saves a new recording next to the original, which is never changed, and downloads it.
+To edit a recording, press **Edit** (the scissors) on it in the dashboard or after recording. Cut and trim, smooth joins, volume, muting, background-noise removal, text and highlights, and brightness, contrast and saturation are all available, with undo. **Export** saves a new recording next to the original, which is never changed, and downloads it. Zoom in with Ctrl/⌘ and the wheel to cut down to a single audio sample; the **Silence** tab finds pauses to remove; the **Audio** tab switches off or shifts the recording's own sound, adds music (which can dip while you speak), or replaces the voice with a file.
 
 ## Verify it
 

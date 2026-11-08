@@ -113,6 +113,12 @@ Chrome 156 on the Intel i7 Mac:
 | Noise removal, speech with steady noise | Noise between phrases −30.9 dB → silence; speech level within 0.5 dB |
 | Volume −6 dB | Measured −6 ± 0.5 dB |
 
+- **How small a cut can be:** sound is cut to the single audio sample (1/48,000 s, about 21 µs); the timeline zooms to 5 ms across, where samples show. The picture changes only between frames, every 33 ms, so a cut shorter than a frame removes sound but no picture. Each hard cut fades the sound over 3 ms either side so it doesn't click.
+- **Smooth joins** crossfade only where at least 1 s was cut. Smaller cuts, and removed silences, stay hard joins, or a 0.5 s crossfade would run into the speech either side.
+- **Finding silences** measures 10 ms windows against a threshold suggested from the recording (halfway between its quiet and loud parts, clamped to −55…−25 dBFS). Over loud background noise it may find little; lower the threshold, or remove the noise first.
+- **Added audio** is decoded by the browser (MP3, WAV, M4A/AAC, OGG/Opus, FLAC in Chrome), at the recording's sample rate. All the added audio together is limited to about 35 minutes (400 MB decoded) to keep memory in check. Its files are kept with the recording, and deleted with it.
+- **Music dipping while someone speaks** follows the recording's sound (after cuts, its shift and mutes) and any added track marked as a voice. "Speaking" is set from each recording (halfway between its quiet and loud levels), so steady background noise isn't taken for speech; with no real difference between the two, nothing dips. It goes down in about 50 ms and comes back over about 400 ms; those times are fixed. Measured over noise at −31 dB: music at −17.4 dB during speech, −8.9 dB in a pause, with a −12 dB setting.
+- **Shifting the recording's sound** (−2 to +2 s) moves every click against its flash by the shift, measured to within a frame.
 - **Output runs at a steady 30 fps.** Each output frame shows the original frame on screen at that moment, so frame holds in the original are kept, not squeezed out.
 - **The preview's picture jumps at cuts** and may hold a frame there. Its sound is the exact edit, including fades, mutes, volume and noise removal. A smooth join's picture blend can only be seen by rendering it: Cuts → **Preview join** renders that join exactly.
 - **With noise removal on, the preview's sound is about 33 ms behind its picture** (the live model's delay). The export takes that delay back out, measured at exactly 960 samples.
