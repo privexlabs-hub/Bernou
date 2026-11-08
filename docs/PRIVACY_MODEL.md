@@ -47,6 +47,8 @@ A recording holds the composition plus the microphone through the audio graph. I
 
 The floating prompter is presenter-only DOM like the Prompter tab: a portal of the same React tree into a Picture-in-Picture window, reading only private stores. Its slide buttons change the slide through the public deck store, as any slide change does. Opening, playing and resizing it publishes nothing (`prompter.float.spec`). **It is a real window on screen**, so an entire-screen share shows it.
 
+The editor is presenter-only. It reads a recording's file and writes a new one, all in this browser; nothing is uploaded, and the noise model runs locally. It never touches the audience channel. Text added as an overlay is put into the exported video on purpose.
+
 **Out of scope:** an attacker with code execution on the presenter's machine; the presenter choosing to share their whole screen instead of the audience window; conferencing-app bugs.
 
 ## Four enforcement layers

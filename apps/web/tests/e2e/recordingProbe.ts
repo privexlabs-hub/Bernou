@@ -6,7 +6,11 @@ import type { Download, Page } from "@playwright/test";
  * ffprobe here). Installs window.__probe in `page`, holding the file's bytes.
  */
 export async function loadRecording(page: Page, download: Download): Promise<Buffer> {
-  const bytes = await readFile(await download.path());
+  return loadRecordingBytes(page, await readFile(await download.path()), download.suggestedFilename());
+}
+
+/** As `loadRecording`, for bytes already in hand (an original read from storage). */
+export async function loadRecordingBytes(page: Page, bytes: Buffer, fileName: string): Promise<Buffer> {
   await page.evaluate(
     async ({ b64, name }) => {
       const raw = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
@@ -46,7 +50,7 @@ export async function loadRecording(page: Page, download: Download): Promise<Buf
       }
       (window as unknown as { __probe: unknown }).__probe = { video, seek, px, audio, canvas, ctx };
     },
-    { b64: bytes.toString("base64"), name: download.suggestedFilename() },
+    { b64: bytes.toString("base64"), name: fileName },
   );
   return bytes;
 }
@@ -111,17 +115,27 @@ function countMp4Frames(file: Buffer): number {
   };
   let videoTrack = -1;
   let frames = 0;
+  // A plain (not fragmented) MP4, like the editor writes, lists its samples in stsz.
+  let tableFrames = 0;
   boxes(0, file.length, (type, body, end) => {
     if (type === "moov") {
       boxes(body, end, (t, b, e) => {
         if (t !== "trak") return;
         let id = -1;
         let isVideo = false;
+        let count = 0;
         boxes(b, e, (t2, b2, e2) => {
           if (t2 === "tkhd") id = file.readUInt32BE(b2 + (file[b2] === 1 ? 20 : 12));
-          if (t2 === "mdia") boxes(b2, e2, (t3, b3) => void (t3 === "hdlr" && (isVideo = file.subarray(b3 + 8, b3 + 12).toString("latin1") === "vide")));
+          if (t2 === "mdia")
+            boxes(b2, e2, (t3, b3, e3) => {
+              if (t3 === "hdlr") isVideo = file.subarray(b3 + 8, b3 + 12).toString("latin1") === "vide";
+              if (t3 === "minf") boxes(b3, e3, (t4, b4, e4) => void (t4 === "stbl" && boxes(b4, e4, (t5, b5) => void (t5 === "stsz" && (count = file.readUInt32BE(b5 + 8))))));
+            });
         });
-        if (isVideo) videoTrack = id;
+        if (isVideo) {
+          videoTrack = id;
+          tableFrames = count;
+        }
       });
     }
     if (type === "moof") {
@@ -135,7 +149,7 @@ function countMp4Frames(file: Buffer): number {
       });
     }
   });
-  return frames;
+  return frames || tableFrames;
 }
 
 function countWebmFrames(file: Buffer): number {
@@ -229,3 +243,47 @@ export const toneLevels = (page: Page, from: number, to: number, freqs: number[]
     },
     { from, to, freqs },
   );
+
+/**
+ * Fragments whose start (tfdt) isn't where the previous fragment's samples, added
+ * up, end. Players that add up durations (QuickTime) drift by these amounts.
+ */
+export function fragmentTimingErrors(file: Buffer): number {
+  if (file.subarray(4, 8).toString("latin1") !== "ftyp") return 0;
+  const boxes = (from: number, to: number, visit: (type: string, body: number, end: number) => void) => {
+    for (let at = from; at + 8 <= to; ) {
+      const size = file.readUInt32BE(at);
+      if (size < 8) return;
+      visit(file.subarray(at + 4, at + 8).toString("latin1"), at + 8, Math.min(at + size, to));
+      at += size;
+    }
+  };
+  const end = new Map<number, number>();
+  let errors = 0;
+  boxes(0, file.length, (type, body, stop) => {
+    if (type !== "moof") return;
+    boxes(body, stop, (t, b, e) => {
+      if (t !== "traf") return;
+      let track = -1;
+      let time = 0;
+      boxes(b, e, (t2, b2) => {
+        if (t2 === "tfhd") track = file.readUInt32BE(b2 + 4);
+        if (t2 === "tfdt") {
+          time = file[b2] === 1 ? Number(file.readBigUInt64BE(b2 + 4)) : file.readUInt32BE(b2 + 4);
+          if (end.has(track) && end.get(track) !== time) errors++;
+        }
+        if (t2 === "trun") {
+          const flags = file.readUInt32BE(b2) & 0xffffff;
+          const n = file.readUInt32BE(b2 + 4);
+          let o = b2 + 8 + (flags & 1 ? 4 : 0) + (flags & 4 ? 4 : 0);
+          for (let i = 0; i < n; i++) {
+            time += file.readUInt32BE(o);
+            o += 4 + (flags & 0x200 ? 4 : 0) + (flags & 0x400 ? 4 : 0) + (flags & 0x800 ? 4 : 0);
+          }
+          end.set(track, time);
+        }
+      });
+    });
+  });
+  return errors;
+}

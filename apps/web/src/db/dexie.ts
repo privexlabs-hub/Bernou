@@ -118,6 +118,90 @@ export interface RecordingRecord {
   savedToDisk: boolean;
   /** Missing on rows from before this existed, which were complete. */
   status?: "recording" | "complete" | "interrupted";
+  /** Set on a recording made in the editor: the id of the recording it was edited from. */
+  editedFrom?: string;
+}
+
+/** A time range in the ORIGINAL recording's seconds. */
+export interface TimeRange {
+  start: number;
+  end: number;
+}
+
+/** The fixed colours overlays can use. */
+export const OVERLAY_COLORS = ["#ffffff", "#111827", "#f59e0b", "#ef4444", "#22c55e", "#3b82f6"] as const;
+export type OverlayColor = (typeof OVERLAY_COLORS)[number];
+
+interface OverlayBase extends TimeRange {
+  id: string;
+  /** Position and size as fractions of the frame (0..1). */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color: OverlayColor;
+}
+export interface TextOverlay extends OverlayBase {
+  kind: "text";
+  text: string;
+  size: "s" | "m" | "l";
+  /** A backing box behind the text, for legibility. */
+  box: boolean;
+}
+export interface HighlightOverlay extends OverlayBase {
+  kind: "highlight";
+  style: "outline" | "fill";
+}
+export type Overlay = TextOverlay | HighlightOverlay;
+
+/** An imported audio file on the edited video's timeline. Its file is in OPFS `editor-audio/<assetId>`. */
+export interface AddedTrack {
+  id: string;
+  assetId: string;
+  name: string;
+  /** Output-timeline seconds where it starts. */
+  start: number;
+  /** Seconds into the file where it starts, and how much of the file plays per pass. */
+  trimIn: number;
+  length: number;
+  volumeDb: number;
+  fadeIn: number;
+  fadeOut: number;
+  loop: boolean;
+  /** Dips while someone speaks. */
+  duck: boolean;
+  /** A voice: makes music that's set to dip go down. */
+  voice: boolean;
+}
+
+/**
+ * A recording's edits. Nothing here changes the original: export renders a new
+ * file from the original plus this. All times are in the original's seconds.
+ */
+export interface EditProject {
+  /** The recording being edited. */
+  id: string;
+  updatedAt: number;
+  trim: TimeRange;
+  cuts: TimeRange[];
+  smoothJoins: boolean;
+  audio: {
+    /** The recording's own sound. */
+    volumeDb: number;
+    mutes: TimeRange[];
+    denoise: { on: boolean; strength: number };
+    /** Off: the export has none of the recording's sound. Offset: + plays it later against the picture. */
+    original: { on: boolean; offsetMs: number };
+    /** Imported audio, placed on the edited video's timeline. */
+    tracks: AddedTrack[];
+    /** How far music set to dip goes down while someone speaks. */
+    ducking: { depthDb: number };
+  };
+  /** -50..50 each; 0 is unchanged. */
+  picture: { brightness: number; contrast: number; saturation: number };
+  /** Picture-only cuts: black for these stretches (original time), the sound carrying on. */
+  blanks: TimeRange[];
+  overlays: Overlay[];
 }
 
 /** One slide's marks. The same shape the audience payload carries. */
@@ -142,6 +226,7 @@ export class BernouDB extends Dexie {
   recordings!: EntityTable<RecordingRecord, "id">;
   settings!: EntityTable<SettingRecord, "key">;
   ink!: EntityTable<InkRecord, "id">;
+  editProjects!: EntityTable<EditProject, "id">;
 
   constructor(name = "bernou") {
     super(name);
@@ -162,6 +247,16 @@ export class BernouDB extends Dexie {
       recordings: "id, sessionId, createdAt",
       settings: "key",
       ink: "id, sessionId, [sessionId+slideIndex]",
+    });
+    this.version(3).stores({
+      sessions: "id, updatedAt, createdAt",
+      slides: "id, sessionId, [sessionId+index]",
+      scripts: "sessionId, updatedAt",
+      notes: "id, sessionId, [sessionId+slideIndex]",
+      recordings: "id, sessionId, createdAt",
+      settings: "key",
+      ink: "id, sessionId, [sessionId+slideIndex]",
+      editProjects: "id",
     });
   }
 }

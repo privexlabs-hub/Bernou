@@ -4,6 +4,8 @@
  *   cam.y4m  — 320x240, 30 frames, 4:2:0, a magenta/green diagonal pattern with
  *              a moving white square (so "is the camera live" checks can detect motion)
  *   tone.wav — 2 s, 48 kHz mono 16-bit, 440 Hz sine at -12 dBFS
+ *   speech.wav — not generated here: macOS `say "Good morning everyone. Thank you for having me today."`,
+ *                then `afconvert -f WAVE -d LEI16@48000 -c 1`. The editor's noise-removal test mixes noise into it.
  *
  * Both are tiny and committed; this script documents how they were made.
  */

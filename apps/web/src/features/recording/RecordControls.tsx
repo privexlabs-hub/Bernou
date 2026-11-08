@@ -3,7 +3,8 @@
  * off, and the review dialog with the download. All presenter-only DOM.
  */
 import { useEffect, useState } from "react";
-import { Circle, Download, Square, Trash2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Circle, Download, Scissors, Square, Trash2 } from "lucide-react";
 import { Button } from "@/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/ui/dialog";
 import { deleteRecording } from "@/db/repositories/recordings";
@@ -112,6 +113,7 @@ export function RecordControls() {
 }
 
 function FinishedDialog() {
+  const navigate = useNavigate();
   const finished = useRecordingStore((s) => s.finished);
   const set = useRecordingStore((s) => s.set);
   const [url, setUrl] = useState<string | null>(null);
@@ -161,6 +163,18 @@ function FinishedDialog() {
             }}
           >
             <Trash2 /> Delete
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={!url}
+            data-testid="recording-edit"
+            onClick={() => {
+              if (!finished) return;
+              close();
+              navigate(`/recordings/${finished.id}/edit`);
+            }}
+          >
+            <Scissors /> Edit
           </Button>
           <Button disabled={!url} data-testid="recording-download" onClick={() => finished && void downloadRecording(finished).then((ok) => setMissing(!ok))}>
             <Download /> Download

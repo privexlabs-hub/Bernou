@@ -48,7 +48,8 @@ Maintained per the spec (§14): nothing is marked complete unless implemented an
 | Branding title/logo | ⚠️ | Engine supports it; **no UI yet** to set the audience-visible title (planned with Stage THIRD polish). Logo assets not wired. |
 | Panel collapse/resize | ✅ | `react-resizable-panels`, sizes persisted in localStorage |
 | Recording and download | ✅ Chrome · ✅ Firefox smoke test · ❓ Safari untested | Audience composition plus microphone only; other meeting participants aren't recorded. MP4, else WebM. See below. `recording.spec` |
-| Compression, trimming, export options | ⏳ | Not started |
+| Editor | ✅ Chrome · ✅ Firefox smoke test (WebM) · ❓ Safari untested | `/recordings/:id/edit`. Covers:<br>• trim, remove sections, smooth joins (0.5 s crossfade)<br>• volume, mute sections, background-noise removal (RNNoise, local, with strength), audio-only WAV<br>• text and highlight overlays<br>• brightness, contrast and saturation<br>• undo and redo, autosave<br><br>Never writes to the original. Export is a new recording: MP4 (H.264/AAC), or WebM (VP9/Opus) where the browser can't encode AAC, such as Firefox. See below. `editor.spec`, `editor.firefox.spec` |
+| Compression, other export resolutions | ⏳ | Not started |
 | Browser-content capture | ⏳ | Stage FOURTH — always needs the browser's own picker |
 | Voice-following teleprompter | ⏳ | Stage FOURTH — opt-in, on-device only |
 | Native virtual camera | ❌ | Not possible in a browser. Stage FOURTH desktop build. Interim: OBS Virtual Camera with the audience window as a source. |
@@ -66,6 +67,13 @@ Output of real runs, not estimates. All with fake media devices on one Intel Mac
 | Ink at the 5,000-point cap, with recording, camera and audience window, on the dev build | Median frame 32 ms, worst 133 ms, audience kept updating (one run) |
 | Firefox 157 | WebM with audio and a finite duration; 6s smoke test only, since the media E2E suite is Chromium-only |
 
+- **Busy machine, measured 2026-11-06** (Intel i7-1068NG7, Chrome 156, fake camera, audience window open, 30 s runs):
+  - **Idle:** 30.2 fps, no frame held over 100 ms.
+  - **With six CPU-burning processes:** 6–22 fps, with freezes of 300–400 ms. The same pattern as a user's 10-minute recording (18.6 fps).
+  - **What stalls:** each recorder tick's task takes 50–150 ms, but Bernou's own work in it is about 1 ms (drawing about 0.7 ms). The rest is the browser's capture and encoding work.
+  - **Since then:** the preview draws 30 times a second, not at every refresh, and during a recording each frame is drawn once, by the recorder's clock. That halves drawing and removed multi-second holes (longest frame 5–6.7 s before, under 0.5 s after). Under heavy load the frame rate improved in some alternating runs and not in others, so **a busy machine still stutters**.
+  - Close heavy apps (a Docker VM was seen at about 130% CPU) before recording.
+- **Recording in QuickTime and other Apple players**: Chrome's MP4 fragments don't add up to their own start times. Chrome plays them by start time, QuickTime by adding durations, and a 10-minute file came out 16 s short on video. Downloads now set each fragment's last sample to end where the next one starts (`fixMp4FragmentGaps`). Recordings downloaded before that fix need downloading again.
 - **Testing hidden tabs**: Playwright keeps every page "visible" through focus emulation, so no Playwright test exercises this, including `recording.spec`. The hidden-tab numbers came from a one-off script driving Chrome directly, which isn't in the repo or CI. Re-measure after changing the frame clock, canvas drawing or payload scheduling.
 - **Fake microphone**: Chrome's file-based fake mic read silent in that script before any app code ran, so hidden-tab audio was measured with an oscillator standing in for the mic.
 - **After a crash**: the file holds what had reached storage, about 2 seconds short of the end (the keyframe interval), and is marked Interrupted. Its duration and row size come from the last save.
@@ -92,6 +100,38 @@ On Chrome 156, driving Chrome directly (not Playwright's focus emulation), one I
 - **Not measured:** keyboard focus right after it opens (automation reported both windows as focused); Chrome over macOS full-screen spaces; a real presentation clicker; the recording frame rate with it open on a quiet machine (the machine was heavily loaded, and the readings were meaningless).
 - **Two unexplained readings** in an early run, with the window visible on a desktop in use: the speed fell 40→25, and the text went backwards for 5 s. Neither recurred in three later runs that logged every input event (only the test's own clicks and keys arrived). Outside input reaching the visible test window is the likely cause, not proven.
 - **Fixed alongside:** the Stop all shortcut did nothing while the prompter's text had focus, because the prompter swallowed the key. It now ignores keys with Ctrl, ⌘ or Alt.
+
+### Editor: what was measured and its limits
+
+Chrome 156 on the Intel i7 Mac:
+
+| Case | Result |
+|---|---|
+| Full export of a real 10-minute recording, with picture filter and a text overlay | 190 s (98 fps, about 3.3× real time). AVFoundation read video 620.50 s and audio 620.52 s, so QuickTime stays in sync. Peak memory of the whole browser 1.3 GB |
+| Cut accuracy | Frames either side of each cut are the right ones to within 60 ms, including a cut starting inside a frame hold in the original |
+| Sync across joins | Each flash-to-click offset matches the original's to within one frame (33 ms) |
+| Noise removal, speech with steady noise | Noise between phrases −30.9 dB → silence; speech level within 0.5 dB |
+| Volume −6 dB | Measured −6 ± 0.5 dB |
+
+- **How small a cut can be:** sound is cut to the single audio sample (1/48,000 s, about 21 µs); the timeline zooms to 5 ms across, where samples show. The picture changes only between frames, every 33 ms, so a cut shorter than a frame removes sound but no picture. Each hard cut fades the sound over 3 ms either side so it doesn't click.
+- **Smooth joins** crossfade only where at least 1 s was cut. Smaller cuts, and removed silences, stay hard joins, or a 0.5 s crossfade would run into the speech either side.
+- **Finding silences** runs on its own as you edit: it measures 10 ms windows against a threshold suggested from the recording (halfway between its quiet and loud parts, clamped to −55…−25 dBFS). Over loud background noise it may find little; lower the threshold, or remove the noise first.
+- **The timeline shows the video and its sound as separate rows.** Gaps found in the sound are yellow; hover one and click to delete it (one undo brings it back). On a touch screen, tap once to see it and again to delete it. A press that moves at all is a selection, not a delete, and clicks on the ruler or the video row only move the playhead.
+- **Removed parts close up on the timeline**, leaving a red seam: click it to see what went and put it back. **Show removed** draws them at full length again, hatched, for adjusting a cut's edges. The ruler keeps the recording's own time, so its labels jump at a seam.
+- **Shortening a gap:** drag either end of a yellow gap inwards; only the part dragged over is removed, so the rest stays as a pause. A gap narrower than about 24 px on screen has no ends to drag (zoom in), but can still be clicked away.
+- **Scrolling while playing:** scrolling or zooming away from the playhead leaves the view where you put it; it follows the playhead again once the playhead is back in view. Zoomed in, a scrollbar under the timeline jumps anywhere.
+- **Delete sound** leaves silence and **Delete picture** leaves black, both without changing the length; **Remove** takes out both. A picture cut stays black whatever the brightness or contrast. Overlays are still drawn over it.
+- **Muting the sound row** switches off all of the recording's sound; the row stays, greyed. **Dragging the strip at the top of the sound row** shifts the sound against the picture (±2 s, in one undo step). Sound cuts stay where they are on the picture, so shift first, then cut.
+- **Thumbnails** are made after the sound is read, one every 0.5 s (at most 1,200), and pause while an export runs. In the preview, the black of a picture cut can start or end up to a frame late; the export is exact.
+- **Added audio** is decoded by the browser (MP3, WAV, M4A/AAC, OGG/Opus, FLAC in Chrome), at the recording's sample rate. All the added audio together is limited to about 35 minutes (400 MB decoded) to keep memory in check. Its files are kept with the recording, and deleted with it.
+- **Music dipping while someone speaks** follows the recording's sound (after cuts, its shift and mutes) and any added track marked as a voice. "Speaking" is set from each recording (halfway between its quiet and loud levels), so steady background noise isn't taken for speech; with no real difference between the two, nothing dips. It goes down in about 50 ms and comes back over about 400 ms; those times are fixed. Measured over noise at −31 dB: music at −17.4 dB during speech, −8.9 dB in a pause, with a −12 dB setting.
+- **Shifting the recording's sound** (−2 to +2 s) moves every click against its flash by the shift, measured to within a frame.
+- **Output runs at a steady 30 fps.** Each output frame shows the original frame on screen at that moment, so frame holds in the original are kept, not squeezed out.
+- **The preview's picture jumps at cuts** and may hold a frame there. Its sound is the exact edit, including fades, mutes, volume and noise removal. A smooth join's picture blend can only be seen by rendering it: Cuts → **Preview join** renders that join exactly.
+- **With noise removal on, the preview's sound is about 33 ms behind its picture** (the live model's delay). The export takes that delay back out, measured at exactly 960 samples.
+- **Noise removal can thin a voice.** It's off by default; listen before exporting, and lower the strength if needed. It needs 48 kHz audio (Bernou's recordings are), and says so otherwise.
+- **The export worker is 5.4 MB, mostly the speech model.** It loads only when the editor opens, never in the studio, dashboard or audience window (`privacy.bundle.spec`).
+- **Safari:** untested. Playwright's WebKit reports the encoders, but its import of slides fails (see Test environment note), so it couldn't be exercised end to end.
 
 ### Audience window sharpness
 

@@ -3,7 +3,10 @@
  *
  * Browsers throttle requestAnimationFrame in hidden or occluded documents,
  * which would freeze a recording or a shared audience window. Strategy:
- *   - visible: requestAnimationFrame (vsync-aligned, cheapest)
+ *   - visible: requestAnimationFrame (vsync-aligned, cheapest), but only at
+ *              the target rate: at every refresh, a 60 Hz display would draw
+ *              twice as often as the recorder captures, and that extra main-
+ *              thread work made recordings stutter on a busy machine
  *   - hidden:  setTimeout at the target fps (Chromium clamps timers in hidden
  *              tabs to 1/s after a while; a Worker-driven tick avoids most of
  *              that, so we prefer a tiny inline Worker when available)
@@ -31,6 +34,11 @@ export function createScheduler(targetFps = 30, doc: Document | null = typeof do
   let worker: Worker | null = null;
   let current: "raf" | "worker" | "timeout" | "stopped" = "stopped";
   const interval = Math.round(1000 / targetFps);
+  // Visible frames: an exact interval, and a little slack, since frame times
+  // jitter and one that's barely early mustn't wait a whole extra refresh.
+  const frameInterval = 1000 / targetFps;
+  const EARLY_MS = 2;
+  let next = -Infinity;
 
   const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
@@ -47,7 +55,11 @@ export function createScheduler(targetFps = 30, doc: Document | null = typeof do
 
   const loopRaf = () => {
     rafId = requestAnimationFrame((ts) => {
-      safeTick(ts);
+      if (ts >= next - EARLY_MS) {
+        // Far behind (a stall, or the first frame): restart from now rather than catch up.
+        next = ts - next > frameInterval ? ts + frameInterval : next + frameInterval;
+        safeTick(ts);
+      }
       if (current === "raf") loopRaf();
     });
   };
@@ -85,6 +97,7 @@ export function createScheduler(targetFps = 30, doc: Document | null = typeof do
 
   const choose = () => {
     stopCurrent();
+    next = -Infinity;
     if (!tick) {
       current = "stopped";
       return;
