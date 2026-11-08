@@ -181,3 +181,62 @@ export async function readOriginal(page: Page): Promise<Buffer> {
   });
   return Buffer.from(b64, "base64");
 }
+
+/** A WAV file of a sine tone, made here, to import as added audio. */
+export function toneWav(freq: number, seconds: number, amplitude = 0.5, rate = 48000): Buffer {
+  const n = Math.round(seconds * rate);
+  const b = Buffer.alloc(44 + n * 2);
+  b.write("RIFF", 0, "latin1");
+  b.writeUInt32LE(36 + n * 2, 4);
+  b.write("WAVEfmt ", 8, "latin1");
+  b.writeUInt32LE(16, 16);
+  b.writeUInt16LE(1, 20);
+  b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(rate, 24);
+  b.writeUInt32LE(rate * 2, 28);
+  b.writeUInt16LE(2, 32);
+  b.writeUInt16LE(16, 34);
+  b.write("data", 36, "latin1");
+  b.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i++) b.writeInt16LE(Math.round(Math.sin((2 * Math.PI * freq * i) / rate) * amplitude * 32767), 44 + i * 2);
+  return b;
+}
+
+/** Adds a generated tone file as music, or as the voice. */
+export async function addTone(page: Page, kind: "music" | "voice", freq = 500, seconds = 3) {
+  await page.getByTestId("editor-tab-audio").click();
+  await page.getByTestId(kind === "music" ? "editor-add-audio-input" : "editor-replace-voice-input").setInputFiles({ name: `tone-${freq}.wav`, mimeType: "audio/wav", buffer: toneWav(freq, seconds) });
+  await expect(page.getByTestId("editor-track-item")).not.toHaveCount(0);
+}
+
+/**
+ * A moment inside speech and one inside a pause, found in the probed file's own
+ * sound: 100 ms loudness against a threshold halfway (in dB) between its quiet
+ * and loud parts. (The fake mic's speech starts when the mic does, so its timing
+ * can't be worked out from the source clock.)
+ */
+export async function findSpeechAndPause(page: Page, after = 1): Promise<{ speech: number; pause: number }> {
+  return page.evaluate((after) => {
+    const a = (window as unknown as { __probe: { audio: AudioBuffer } }).__probe.audio;
+    const d = a.getChannelData(0);
+    const win = 0.1;
+    const db: number[] = [];
+    for (let s = 0; s + win <= a.duration; s += win) {
+      let e = 0;
+      for (let i = Math.floor(s * a.sampleRate); i < (s + win) * a.sampleRate; i++) e += d[i]! ** 2;
+      db.push(10 * Math.log10(e / (win * a.sampleRate) + 1e-12));
+    }
+    const sorted = [...db].sort((x, y) => x - y);
+    const limit = (sorted[Math.floor(0.1 * sorted.length)]! + sorted[Math.floor(0.9 * sorted.length)]!) / 2;
+    const run = (from: number, loud: boolean, n: number) => {
+      for (let i = from; i + n <= db.length; i++) if (db.slice(i, i + n).every((v) => (loud ? v > limit : v < limit))) return i;
+      return -1;
+    };
+    const s = run(Math.ceil(after / win), true, 6);
+    const p = s < 0 ? -1 : run(s, false, 8);
+    if (s < 0 || p < 0) throw new Error(`no speech and pause found (threshold ${limit.toFixed(1)} dB)`);
+    // Inside each run, clear of its edges.
+    // The pause point is half a second in, past the music's 0.4 s recovery from a dip.
+    return { speech: (s + 1.5) * win, pause: (p + 5) * win };
+  }, after);
+}

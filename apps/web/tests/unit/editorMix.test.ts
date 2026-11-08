@@ -99,6 +99,20 @@ describe("ducking envelope", () => {
     expect(up).toBeGreaterThan(down * 3);
   });
 
+  it("over steady background noise (outdoors), dips only while someone speaks", () => {
+    // Noise at about -29 dB all through, speech at about -19 dB from 1 s to 3 s.
+    const noisy = Float32Array.from({ length: 6 * ENVELOPE_RATE }, (_, i) => (i >= 100 && i < 300 ? 0.11 : 0.035));
+    const g = duckingEnvelope(noisy, -12);
+    expect(g[50]).toBeCloseTo(1, 3);
+    expect(g[250]).toBeCloseTo(10 ** (-12 / 20), 2);
+    expect(g[550]).toBeGreaterThan(0.95);
+  });
+
+  it("noise alone, however loud, isn't speech: no dip", () => {
+    const g = duckingEnvelope(new Float32Array(600).fill(0.035), -12);
+    expect(Math.min(...g)).toBeCloseTo(1, 6);
+  });
+
   it("no voice, no dip", () => {
     const g = duckingEnvelope(new Float32Array(300).fill(0.001), -12);
     expect(Math.min(...g)).toBeCloseTo(1, 6);
@@ -123,5 +137,16 @@ describe("voice levels for the dip", () => {
     const withVoice = voiceLevels({ layout: l, original: null, voiceTracks: [{ samples: new Float32Array(rate).fill(0.4), rate, start: 2, trimIn: 0, length: 1, loop: false }] });
     expect(withVoice[Math.round(1.5 * ENVELOPE_RATE)]).toBe(0);
     expect(withVoice[Math.round(2.5 * ENVELOPE_RATE)]).toBeGreaterThan(0.3);
+  });
+});
+
+describe("mixing a slice of the output (a join preview)", () => {
+  it("places tracks by the slice's start, and loops to the full video's end", () => {
+    const m = new TrackMixer({ sampleRate: RATE, tracks: [track({ start: 3, length: 0.5, loop: true })], envelope: null, outputDuration: 10, timeOffset: 2 });
+    const p = [new Float32Array(3 * RATE)]; // output 2..5
+    m.mix(p, 0);
+    expect(p[0]![500]).toBe(0); // output 2.5: before the track
+    expect(p[0]![1500]).toBeCloseTo(0.5, 6); // output 3.5
+    expect(p[0]![2900]).toBeCloseTo(0.5, 6); // output 4.9: still looping
   });
 });

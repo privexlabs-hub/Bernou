@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 import { audioStats, countVideoFrames, fileInfo, loadRecording, loadRecordingBytes, pixelAt, toneLevels } from "./recordingProbe";
-import { decodeColour, exportVideo, installFakeSource, originalBytes, readOriginal, recordAndOpenEditor, select } from "./editorHelpers";
+import { decodeColour, exportVideo, findSpeechAndPause, installFakeSource, originalBytes, readOriginal, recordAndOpenEditor, select } from "./editorHelpers";
 
 test.skip(({ browserName }) => browserName !== "chromium", "the media tests run on Chromium");
 test.setTimeout(240_000);
@@ -210,11 +210,11 @@ test("volume, a muted section and audio-only download", async ({ page }) => {
 test("noise removal takes out the noise between phrases and keeps the speech", async ({ page }) => {
   await installFakeSource(page, { speech: true });
   await recordAndOpenEditor(page, 10);
-  const offset = await probeOriginal(page);
-  // Speech from source 1 s for the phrase's length, then 1.5 s of noise only, repeating.
-  const phrase = await page.evaluate(async () => (await new AudioContext().decodeAudioData(await (await fetch("/__fixture/speech.wav")).arrayBuffer())).duration);
-  const gap = { start: 1 + phrase + 0.25 - offset, end: 1 + phrase + 1.25 - offset };
-  const speech = { start: 1.3 - offset, end: 1 + phrase - 0.3 - offset };
+  await loadRecordingBytes(page, await readOriginal(page), "original.mp4");
+  // A stretch of speech and of pause, found in the recording's own sound.
+  const found = await findSpeechAndPause(page);
+  const gap = { start: found.pause - 0.15, end: found.pause + 0.45 };
+  const speech = { start: found.speech - 0.1, end: found.speech + 0.3 };
   const noisyGap = (await audioStats(page, gap.start, gap.end)).rms;
   const noisySpeech = (await audioStats(page, speech.start, speech.end)).rms;
 
