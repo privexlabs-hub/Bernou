@@ -4,7 +4,7 @@ import { Copy, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/ui/dropdown-menu";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/ui/dialog";
+import { ConfirmDialog } from "@/ui/confirm-dialog";
 import { db, type SessionRecord } from "@/db/dexie";
 import { formatRelative } from "@/lib/format";
 
@@ -100,29 +100,15 @@ export function SessionCard({ session, onOpen, onRename, onDuplicate, onDelete }
         </DropdownMenu>
       </div>
 
-      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete “{session.title}”?</DialogTitle>
-            <DialogDescription>This removes the slides, script and speaker notes for this presentation from this device. Recordings are kept.</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              data-testid="session-delete-confirm"
-              onClick={async () => {
-                setConfirmDelete(false);
-                await onDelete();
-              }}
-            >
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={<>Delete “{session.title}”?</>}
+        description="This removes the slides, script and speaker notes for this presentation from this device. Recordings are kept."
+        confirmLabel="Delete"
+        onConfirm={onDelete}
+        testId="session-delete-confirm"
+      />
     </div>
   );
 }

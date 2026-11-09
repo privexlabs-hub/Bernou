@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { Circle, Download, Scissors, Square, Trash2 } from "lucide-react";
 import { Button } from "@/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/ui/dialog";
+import { ConfirmDialog } from "@/ui/confirm-dialog";
 import { deleteRecording } from "@/db/repositories/recordings";
 import { formatBytes, formatDuration } from "@/lib/format";
 import { selectMicLive, useDevicesStore } from "@/stores/private/devicesStore";
@@ -118,6 +119,7 @@ function FinishedDialog() {
   const set = useRecordingStore((s) => s.set);
   const [url, setUrl] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     setMissing(false);
@@ -156,11 +158,7 @@ function FinishedDialog() {
           <Button
             variant="ghost"
             data-testid="recording-delete"
-            onClick={async () => {
-              if (!finished || !confirm("Delete this recording? This can't be undone.")) return;
-              await deleteRecording(finished);
-              close();
-            }}
+            onClick={() => setConfirmDelete(true)}
           >
             <Trash2 /> Delete
           </Button>
@@ -180,6 +178,19 @@ function FinishedDialog() {
             <Download /> Download
           </Button>
         </div>
+        <ConfirmDialog
+          open={confirmDelete}
+          onOpenChange={setConfirmDelete}
+          title="Delete this recording?"
+          description="Its file is removed from this browser. This can't be undone."
+          confirmLabel="Delete"
+          onConfirm={async () => {
+            if (!finished) return;
+            await deleteRecording(finished);
+            close();
+          }}
+          testId="recording-delete-confirm"
+        />
       </DialogContent>
     </Dialog>
   );

@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/ui/switch";
 import { getSetting, setSetting } from "@/db/repositories/settings";
 import { Button } from "@/ui/button";
+import { ConfirmDialog } from "@/ui/confirm-dialog";
 import { eraseRecordingFiles } from "@bernou/media-core/recorder";
 import { db } from "@/db/dexie";
 
@@ -18,6 +19,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = { defaultProfile: "1080p", requ
 
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
+  const [confirmErase, setConfirmErase] = useState(false);
   const [storage, setStorage] = useState<{ usage: number; quota: number; persisted: boolean | null } | null>(null);
 
   useEffect(() => {
@@ -81,17 +83,25 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
             <Button
               variant="destructive"
               size="sm"
-              onClick={async () => {
-                if (!confirm("Erase ALL Bernou data from this browser? This cannot be undone.")) return;
-                await eraseRecordingFiles();
-                await db().delete();
-                location.reload();
-              }}
+              onClick={() => setConfirmErase(true)}
             >
               Erase
             </Button>
           </div>
         </div>
+        <ConfirmDialog
+          open={confirmErase}
+          onOpenChange={setConfirmErase}
+          title="Erase all Bernou data?"
+          description="Every session, script, note and recording on this device is deleted, and the page reloads. This can't be undone."
+          confirmLabel="Erase everything"
+          onConfirm={async () => {
+            await eraseRecordingFiles();
+            await db().delete();
+            location.reload();
+          }}
+          testId="settings-erase-confirm"
+        />
       </DialogContent>
     </Dialog>
   );

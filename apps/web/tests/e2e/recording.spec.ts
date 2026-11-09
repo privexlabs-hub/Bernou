@@ -403,7 +403,8 @@ test("a reload mid-recording leaves a downloadable interrupted file", async ({ p
 });
 
 test("deleting a recording removes its file; Erase removes them all", async ({ page }) => {
-  page.on("dialog", (d) => void d.accept());
+  // The app asks in its own dialog: a native confirm() would fail this test.
+  page.on("dialog", (d) => void d.dismiss());
   await studio(page);
   await micOn(page);
   for (let i = 0; i < 2; i++) {
@@ -417,15 +418,49 @@ test("deleting a recording removes its file; Erase removes them all", async ({ p
   expect(await opfsFiles(page)).toHaveLength(2);
 
   await page.getByTestId("back-to-dashboard").click();
+  // Cancel keeps it.
   await page.getByTestId("recording-row-delete").first().click();
+  await expect(page.getByTestId("recording-row-delete-confirm-dialog")).toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByTestId("recording-row-delete-confirm-dialog")).toHaveCount(0);
+  await expect(page.getByTestId("recording-row")).toHaveCount(2);
+  expect(await opfsFiles(page)).toHaveLength(2);
+
+  await page.getByTestId("recording-row-delete").first().click();
+  await page.getByTestId("recording-row-delete-confirm").click();
   await expect(page.getByTestId("recording-row")).toHaveCount(1);
   expect(await opfsFiles(page)).toHaveLength(1);
 
   await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Erase", exact: true }).click();
+  await expect(page.getByTestId("settings-erase-confirm-dialog")).toContainText("can't be undone");
   const reloaded = page.waitForEvent("load"); // Erase reloads the page
-  await page.getByRole("button", { name: "Erase" }).click();
+  await page.getByTestId("settings-erase-confirm").click();
   await reloaded;
   await expect(page.getByTestId("new-presentation")).toBeVisible();
+  expect(await opfsFiles(page)).toEqual([]);
+});
+
+test("Delete in the saved dialog asks first; Escape backs out of only the question", async ({ page }) => {
+  page.on("dialog", (d) => void d.dismiss());
+  await studio(page);
+  await micOn(page);
+  await startRecording(page);
+  await page.waitForTimeout(1200);
+  await page.getByTestId("record-toggle").click();
+  await expect(page.getByTestId("recording-finished")).toBeVisible();
+
+  await page.getByTestId("recording-delete").click();
+  await expect(page.getByTestId("recording-delete-confirm-dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("recording-delete-confirm-dialog")).toHaveCount(0);
+  await expect(page.getByTestId("recording-finished")).toBeVisible();
+  expect(await opfsFiles(page)).toHaveLength(1);
+
+  await page.getByTestId("recording-delete").click();
+  await page.getByTestId("recording-delete-confirm").click();
+  await expect(page.getByTestId("recording-finished")).toHaveCount(0);
+  await expect(page.getByTestId("recording-delete-confirm-dialog")).toHaveCount(0);
   expect(await opfsFiles(page)).toEqual([]);
 });
 

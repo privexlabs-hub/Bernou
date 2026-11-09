@@ -198,8 +198,8 @@ test("tracks survive a reload, and their files go when the recording is deleted"
     });
   expect(await files()).toBe(1);
   await page.getByTestId("editor-back").click();
-  page.once("dialog", (d) => void d.accept());
   await page.getByTestId("recording-row-delete").first().click();
+  await page.getByTestId("recording-row-delete-confirm").click();
   await expect(page.getByTestId("recording-row")).toHaveCount(0);
   expect(await files()).toBe(0);
 });
