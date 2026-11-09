@@ -4,6 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { Download, Film, FileText, Plus, Scissors, Settings, Trash2, Upload } from "lucide-react";
 import { Button } from "@/ui/button";
 import { TooltipProvider } from "@/ui/tooltip";
+import { ConfirmDialog } from "@/ui/confirm-dialog";
 import { db, type RecordingRecord } from "@/db/dexie";
 import { deleteRecording } from "@/db/repositories/recordings";
 import { createSession, deleteSession, duplicateSession, renameSession } from "@/db/repositories/sessions";
@@ -222,6 +223,7 @@ function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
 function RecordingRow({ recording: r }: { recording: RecordingRecord }) {
   const navigate = useNavigate();
   const [missing, setMissing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const inProgress = r.status === "recording";
   return (
     <li className="flex items-center gap-3 px-4 py-3" data-testid="recording-row" data-status={r.status ?? "complete"}>
@@ -248,12 +250,19 @@ function RecordingRow({ recording: r }: { recording: RecordingRecord }) {
         disabled={inProgress}
         aria-label={`Delete ${r.title}`}
         data-testid="recording-row-delete"
-        onClick={() => {
-          if (confirm(`Delete the recording "${r.title}"? This can't be undone.`)) void deleteRecording(r);
-        }}
+        onClick={() => setConfirmDelete(true)}
       >
         <Trash2 />
       </Button>
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={<>Delete “{r.title}”?</>}
+        description="Its file is removed from this browser. This can't be undone."
+        confirmLabel="Delete"
+        onConfirm={() => deleteRecording(r)}
+        testId="recording-row-delete-confirm"
+      />
     </li>
   );
 }
